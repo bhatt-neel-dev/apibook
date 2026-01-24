@@ -2,6 +2,7 @@
 .venv/
 venv/
 env/
+uv.lock
 
 # Environment variables (secrets)
 .env
