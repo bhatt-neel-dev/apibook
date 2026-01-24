@@ -1,0 +1,301 @@
+---
+title: 'Traces API'
+description: 'Send and query distributed traces'
+---
+
+# Traces API
+
+Send and query distributed tracing data.
+
+## Send Span
+
+<ParamField body="trace_id" type="string" required>
+  Unique trace identifier
+</ParamField>
+
+<ParamField body="span_id" type="string" required>
+  Unique span identifier
+</ParamField>
+
+<ParamField body="parent_span_id" type="string">
+  Parent span ID (null for root span)
+</ParamField>
+
+<ParamField body="operation_name" type="string" required>
+  Name of the operation
+</ParamField>
+
+<ParamField body="service_name" type="string" required>
+  Name of the service
+</ParamField>
+
+<ParamField body="timestamp" type="string">
+  Start time (ISO 8601)
+</ParamField>
+
+<ParamField body="duration_ms" type="number" required>
+  Duration in milliseconds
+</ParamField>
+
+<ParamField body="status_code" type="string">
+  Status: `OK`, `ERROR`, `UNSET`
+</ParamField>
+
+<ParamField body="attributes" type="object">
+  Additional span attributes
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.itsfriday.in/v1/traces/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "trace_id": "abc123def456",
+    "span_id": "span001",
+    "parent_span_id": null,
+    "operation_name": "HTTP GET /users",
+    "service_name": "api-gateway",
+    "duration_ms": 145.5,
+    "status_code": "OK",
+    "attributes": {
+      "http.method": "GET",
+      "http.url": "/users",
+      "http.status_code": "200"
+    }
+  }'
+```
+
+```python Python
+client.traces.send_span(
+    trace_id="abc123def456",
+    span_id="span001",
+    parent_span_id=None,
+    operation_name="HTTP GET /users",
+    service_name="api-gateway",
+    duration_ms=145.5,
+    status_code="OK",
+    attributes={
+        "http.method": "GET",
+        "http.url": "/users",
+        "http.status_code": "200"
+    }
+)
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "accepted": true
+  }
+}
+```
+
+---
+
+## Send Batch Spans
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/traces/batch/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "spans": [
+      {
+        "trace_id": "abc123",
+        "span_id": "span001",
+        "operation_name": "HTTP GET /users",
+        "service_name": "api-gateway",
+        "duration_ms": 145.5
+      },
+      {
+        "trace_id": "abc123",
+        "span_id": "span002",
+        "parent_span_id": "span001",
+        "operation_name": "SELECT users",
+        "service_name": "user-service",
+        "duration_ms": 12.3
+      }
+    ]
+  }'
+```
+
+---
+
+## Get Trace
+
+Get a complete trace with all spans.
+
+```bash
+curl "https://api.itsfriday.in/v1/traces/abc123def456/" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Response
+
+```json
+{
+  "data": {
+    "trace_id": "abc123def456",
+    "spans": [
+      {
+        "span_id": "span001",
+        "parent_span_id": null,
+        "operation_name": "HTTP GET /users",
+        "service_name": "api-gateway",
+        "timestamp": "2024-01-15T10:30:00Z",
+        "duration_ms": 145.5,
+        "status_code": "OK",
+        "attributes": {...}
+      },
+      {
+        "span_id": "span002",
+        "parent_span_id": "span001",
+        "operation_name": "SELECT users",
+        "service_name": "user-service",
+        "timestamp": "2024-01-15T10:30:00.010Z",
+        "duration_ms": 12.3,
+        "status_code": "OK",
+        "attributes": {...}
+      }
+    ],
+    "duration_ms": 145.5,
+    "service_count": 2
+  }
+}
+```
+
+---
+
+## Search Traces
+
+<ParamField query="service" type="string">
+  Filter by service name
+</ParamField>
+
+<ParamField query="operation" type="string">
+  Filter by operation name
+</ParamField>
+
+<ParamField query="min_duration_ms" type="number">
+  Minimum trace duration
+</ParamField>
+
+<ParamField query="max_duration_ms" type="number">
+  Maximum trace duration
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by status: `OK`, `ERROR`
+</ParamField>
+
+<ParamField query="from" type="string">
+  Start time (ISO 8601)
+</ParamField>
+
+<ParamField query="to" type="string">
+  End time (ISO 8601)
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -G "https://api.itsfriday.in/v1/traces/search/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  --data-urlencode "service=api-gateway" \
+  --data-urlencode "min_duration_ms=100" \
+  --data-urlencode "status=ERROR" \
+  --data-urlencode "limit=20"
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "traces": [
+      {
+        "trace_id": "abc123def456",
+        "root_operation": "HTTP GET /users",
+        "root_service": "api-gateway",
+        "timestamp": "2024-01-15T10:30:00Z",
+        "duration_ms": 245.5,
+        "span_count": 5,
+        "status": "ERROR"
+      }
+    ]
+  },
+  "meta": {
+    "total": 150,
+    "limit": 20
+  }
+}
+```
+
+---
+
+## Get Service Stats
+
+Get trace statistics per service.
+
+```bash
+curl -G "https://api.itsfriday.in/v1/traces/services/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  --data-urlencode "from=2024-01-15T00:00:00Z"
+```
+
+### Response
+
+```json
+{
+  "data": {
+    "services": [
+      {
+        "name": "api-gateway",
+        "trace_count": 1500,
+        "avg_duration_ms": 45.2,
+        "error_rate": 0.02
+      },
+      {
+        "name": "user-service",
+        "trace_count": 1200,
+        "avg_duration_ms": 12.5,
+        "error_rate": 0.01
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Span Attributes
+
+### HTTP Spans
+
+| Attribute | Description |
+|-----------|-------------|
+| `http.method` | HTTP method (GET, POST, etc.) |
+| `http.url` | Request URL |
+| `http.status_code` | Response status code |
+| `http.host` | Target host |
+
+### Database Spans
+
+| Attribute | Description |
+|-----------|-------------|
+| `db.system` | Database type (postgresql, mysql) |
+| `db.statement` | Query statement |
+| `db.operation` | Operation type (SELECT, INSERT) |
+| `db.rows_affected` | Number of rows affected |
+
+### Messaging Spans
+
+| Attribute | Description |
+|-----------|-------------|
+| `messaging.system` | System (kafka, rabbitmq) |
+| `messaging.destination` | Queue/topic name |
+| `messaging.operation` | Operation (publish, consume) |

@@ -1,0 +1,276 @@
+---
+title: 'Configuration'
+description: 'Complete configuration reference for ItsFriday'
+---
+
+# Configuration Reference
+
+All configuration is done through environment variables in the `.env` file.
+
+## Core Settings
+
+### Django
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `DJANGO_SECRET_KEY` | Secret key for cryptographic signing | - | Yes |
+| `DJANGO_DEBUG` | Enable debug mode | `False` | No |
+| `DJANGO_ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost` | Yes |
+| `DJANGO_SETTINGS_MODULE` | Settings module | `config.settings.development` | No |
+
+```bash
+DJANGO_SECRET_KEY=your-super-secret-key-change-in-production
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=your-domain.com,www.your-domain.com
+```
+
+<Warning>
+  Never use debug mode in production. Always set `DJANGO_DEBUG=False`.
+</Warning>
+
+## Database Configuration
+
+### PostgreSQL
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `POSTGRES_DB` | Database name | `itsfriday` |
+| `POSTGRES_USER` | Database user | `itsfriday` |
+| `POSTGRES_PASSWORD` | Database password | - |
+| `POSTGRES_HOST` | Database host | `localhost` |
+| `POSTGRES_PORT` | Database port | `5432` |
+
+```bash
+POSTGRES_DB=itsfriday
+POSTGRES_USER=itsfriday
+POSTGRES_PASSWORD=secure-password
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+```
+
+### ClickHouse
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CLICKHOUSE_HOST` | ClickHouse host | `localhost` |
+| `CLICKHOUSE_PORT` | Native port | `9000` |
+| `CLICKHOUSE_HTTP_PORT` | HTTP port | `8123` |
+| `CLICKHOUSE_DB` | Database name | `itsfriday` |
+| `CLICKHOUSE_USER` | Username | `default` |
+| `CLICKHOUSE_PASSWORD` | Password | `` |
+
+```bash
+CLICKHOUSE_HOST=clickhouse
+CLICKHOUSE_PORT=9000
+CLICKHOUSE_DB=itsfriday
+```
+
+## Cache & Queue
+
+### Redis
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REDIS_URL` | Redis connection URL | `redis://localhost:6379/0` |
+| `REDIS_PASSWORD` | Redis password | `` |
+
+```bash
+REDIS_URL=redis://redis:6379/0
+REDIS_PASSWORD=optional-password
+```
+
+### Celery
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CELERY_BROKER_URL` | Message broker URL | `redis://localhost:6379/1` |
+| `CELERY_RESULT_BACKEND` | Result backend URL | `redis://localhost:6379/2` |
+
+```bash
+CELERY_BROKER_URL=redis://redis:6379/1
+CELERY_RESULT_BACKEND=redis://redis:6379/2
+```
+
+## Authentication
+
+### Auth0
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `AUTH0_DOMAIN` | Auth0 tenant domain | Yes |
+| `AUTH0_CLIENT_ID` | Application client ID | Yes |
+| `AUTH0_CLIENT_SECRET` | Application client secret | Yes |
+| `AUTH0_AUDIENCE` | API audience | Yes |
+| `AUTH0_ALGORITHMS` | Token algorithms | No |
+
+```bash
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_CLIENT_SECRET=your-client-secret
+AUTH0_AUDIENCE=https://api.your-domain.com
+AUTH0_ALGORITHMS=RS256
+```
+
+## CORS
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CORS_ALLOWED_ORIGINS` | Allowed origins | `http://localhost:3000` |
+
+```bash
+CORS_ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
+```
+
+## Email
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `EMAIL_HOST` | SMTP server | - |
+| `EMAIL_PORT` | SMTP port | `587` |
+| `EMAIL_HOST_USER` | SMTP username | - |
+| `EMAIL_HOST_PASSWORD` | SMTP password | - |
+| `EMAIL_USE_TLS` | Use TLS | `True` |
+| `DEFAULT_FROM_EMAIL` | From address | - |
+
+```bash
+EMAIL_HOST=smtp.sendgrid.net
+EMAIL_PORT=587
+EMAIL_HOST_USER=apikey
+EMAIL_HOST_PASSWORD=your-sendgrid-api-key
+EMAIL_USE_TLS=True
+DEFAULT_FROM_EMAIL=noreply@your-domain.com
+```
+
+## Monitoring
+
+### Sentry
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `SENTRY_DSN` | Sentry DSN | No |
+| `SENTRY_ENVIRONMENT` | Environment name | No |
+
+```bash
+SENTRY_DSN=https://key@sentry.io/project
+SENTRY_ENVIRONMENT=production
+```
+
+## Storage (AWS S3)
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `AWS_ACCESS_KEY_ID` | AWS access key | No |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | No |
+| `AWS_STORAGE_BUCKET_NAME` | S3 bucket name | No |
+| `AWS_S3_REGION_NAME` | AWS region | `us-east-1` |
+
+```bash
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=secret...
+AWS_STORAGE_BUCKET_NAME=your-bucket
+AWS_S3_REGION_NAME=us-east-1
+```
+
+## Frontend
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_API_URL` | Backend API URL | `http://localhost:8000/api/v1` |
+| `VITE_AUTH0_DOMAIN` | Auth0 domain | - |
+| `VITE_AUTH0_CLIENT_ID` | Auth0 client ID | - |
+| `VITE_AUTH0_AUDIENCE` | API audience | - |
+| `VITE_AUTH0_REDIRECT_URI` | OAuth redirect URI | - |
+
+```bash
+VITE_API_URL=https://api.your-domain.com/v1
+VITE_AUTH0_DOMAIN=your-tenant.auth0.com
+VITE_AUTH0_CLIENT_ID=your-spa-client-id
+VITE_AUTH0_AUDIENCE=https://api.your-domain.com
+VITE_AUTH0_REDIRECT_URI=https://your-domain.com/callback
+```
+
+## Application
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Logging level | `INFO` |
+| `ENVIRONMENT` | Environment name | `development` |
+
+```bash
+LOG_LEVEL=INFO
+ENVIRONMENT=production
+```
+
+## Complete Example
+
+```bash
+# =============================================================================
+# ItsFriday Production Configuration
+# =============================================================================
+
+# Core
+DJANGO_SECRET_KEY=your-50-character-random-secret-key-here
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=your-domain.com
+DJANGO_SETTINGS_MODULE=config.settings.production
+
+# PostgreSQL
+POSTGRES_DB=itsfriday
+POSTGRES_USER=itsfriday
+POSTGRES_PASSWORD=secure-database-password
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+
+# ClickHouse
+CLICKHOUSE_HOST=clickhouse
+CLICKHOUSE_PORT=9000
+CLICKHOUSE_DB=itsfriday
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=
+
+# Redis
+REDIS_URL=redis://redis:6379/0
+
+# Celery
+CELERY_BROKER_URL=redis://redis:6379/1
+CELERY_RESULT_BACKEND=redis://redis:6379/2
+
+# Auth0
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_CLIENT_SECRET=your-client-secret
+AUTH0_AUDIENCE=https://api.your-domain.com
+
+# CORS
+CORS_ALLOWED_ORIGINS=https://your-domain.com
+
+# Frontend
+VITE_API_URL=https://your-domain.com/api/v1
+VITE_AUTH0_DOMAIN=your-tenant.auth0.com
+VITE_AUTH0_CLIENT_ID=your-spa-client-id
+VITE_AUTH0_AUDIENCE=https://api.your-domain.com
+
+# Monitoring
+SENTRY_DSN=https://key@sentry.io/project
+LOG_LEVEL=INFO
+ENVIRONMENT=production
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference/introduction"
+  >
+    Explore the API
+  </Card>
+  <Card
+    title="Sending Metrics"
+    icon="chart-line"
+    href="/guides/sending-metrics"
+  >
+    Start sending data
+  </Card>
+</CardGroup>

@@ -1,0 +1,272 @@
+---
+title: 'Docker Compose'
+description: 'Deploy ItsFriday with Docker Compose'
+---
+
+# Docker Compose Deployment
+
+The easiest way to self-host ItsFriday is using Docker Compose.
+
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/itsfriday-in/itsfriday.git
+cd itsfriday
+
+# Start with quickstart script
+./scripts/quickstart.sh
+```
+
+## Manual Setup
+
+### 1. Clone Repository
+
+```bash
+git clone https://github.com/itsfriday-in/itsfriday.git
+cd itsfriday
+```
+
+### 2. Configure Environment
+
+```bash
+# Copy example configuration
+cp .env.example .env
+
+# Generate a secure secret key
+DJANGO_SECRET_KEY=$(openssl rand -base64 50 | tr -dc 'a-zA-Z0-9' | head -c 50)
+sed -i "s|DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}|" .env
+
+# Generate database password
+POSTGRES_PASSWORD=$(openssl rand -base64 20 | tr -dc 'a-zA-Z0-9' | head -c 20)
+sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
+```
+
+### 3. Start Services
+
+```bash
+# Development (with hot reload)
+docker-compose up -d
+
+# Production
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+
+### 4. Run Migrations
+
+```bash
+# Django migrations
+docker-compose exec backend python src/manage.py migrate
+
+# ClickHouse migrations
+docker-compose exec backend python src/manage.py clickhouse_migrate
+```
+
+### 5. Create Admin User
+
+```bash
+docker-compose exec backend python src/manage.py createsuperuser
+```
+
+## Service Architecture
+
+```yaml
+services:
+  nginx:        # Reverse proxy (production only)
+  backend:      # Django API
+  frontend:     # React app (production only)
+  postgres:     # Configuration database
+  clickhouse:   # Analytics database
+  redis:        # Cache and message broker
+  celery-worker: # Background tasks
+  celery-beat:   # Scheduled tasks
+```
+
+## Configuration Files
+
+### docker-compose.yml (Development)
+
+Starts only infrastructure services:
+
+```yaml
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-itsfriday}
+      POSTGRES_USER: ${POSTGRES_USER:-itsfriday}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+```
+
+### docker-compose.prod.yml (Production)
+
+Full stack with all services:
+
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+
+  backend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/backend.Dockerfile
+      target: production
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    depends_on:
+      - postgres
+      - clickhouse
+      - redis
+```
+
+## Common Commands
+
+### View Logs
+
+```bash
+# All services
+docker-compose -f docker-compose.prod.yml logs -f
+
+# Specific service
+docker-compose -f docker-compose.prod.yml logs -f backend
+
+# Last 100 lines
+docker-compose -f docker-compose.prod.yml logs --tail=100 backend
+```
+
+### Restart Services
+
+```bash
+# All services
+docker-compose -f docker-compose.prod.yml restart
+
+# Specific service
+docker-compose -f docker-compose.prod.yml restart backend
+```
+
+### Update Application
+
+```bash
+# Pull latest changes
+git pull origin main
+
+# Rebuild and restart
+docker-compose -f docker-compose.prod.yml up -d --build
+
+# Run migrations
+docker-compose -f docker-compose.prod.yml exec backend python src/manage.py migrate
+```
+
+### Shell Access
+
+```bash
+# Backend shell
+docker-compose exec backend bash
+
+# Django shell
+docker-compose exec backend python src/manage.py shell
+
+# Database shell
+docker-compose exec postgres psql -U itsfriday
+```
+
+## Data Management
+
+### Backup
+
+```bash
+# PostgreSQL
+docker-compose exec postgres pg_dump -U itsfriday itsfriday > backup.sql
+
+# ClickHouse
+docker-compose exec clickhouse clickhouse-client --query "SELECT * FROM metrics" --format Native > metrics.native
+```
+
+### Restore
+
+```bash
+# PostgreSQL
+cat backup.sql | docker-compose exec -T postgres psql -U itsfriday itsfriday
+
+# ClickHouse
+cat metrics.native | docker-compose exec -T clickhouse clickhouse-client --query "INSERT INTO metrics FORMAT Native"
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Container won't start">
+    ```bash
+    # Check logs
+    docker-compose logs backend
+
+    # Check container status
+    docker-compose ps
+
+    # Verify configuration
+    docker-compose config
+    ```
+  </Accordion>
+
+  <Accordion title="Database connection error">
+    ```bash
+    # Check if database is ready
+    docker-compose exec postgres pg_isready
+
+    # Verify credentials
+    docker-compose exec backend python src/manage.py check
+    ```
+  </Accordion>
+
+  <Accordion title="Out of disk space">
+    ```bash
+    # Clean up Docker
+    docker system prune -a
+
+    # Check disk usage
+    docker system df
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Production Deployment"
+    icon="rocket"
+    href="/self-hosting/production-deployment"
+  >
+    Production-ready deployment
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/self-hosting/configuration"
+  >
+    Configure all settings
+  </Card>
+</CardGroup>

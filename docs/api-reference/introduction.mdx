@@ -1,0 +1,153 @@
+---
+title: 'API Introduction'
+description: 'Getting started with the ItsFriday API'
+---
+
+# API Reference
+
+The ItsFriday API is a REST API that allows you to programmatically send and query observability data.
+
+## Base URL
+
+```
+https://api.itsfriday.in/v1
+```
+
+For self-hosted installations:
+```
+https://your-domain.com/api/v1
+```
+
+## Authentication
+
+All API requests require authentication using a Bearer token:
+
+```bash
+curl https://api.itsfriday.in/v1/metrics/ \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+See [Authentication](/api-reference/authentication) for details on obtaining API keys.
+
+## Request Format
+
+- All requests use JSON format
+- Set `Content-Type: application/json` header for POST/PUT requests
+- Timestamps should be ISO 8601 format: `2024-01-15T10:30:00Z`
+
+## Response Format
+
+All responses return JSON with a consistent structure:
+
+### Success Response
+
+```json
+{
+  "data": { ... },
+  "meta": {
+    "request_id": "req_abc123"
+  }
+}
+```
+
+### Error Response
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Invalid metric name",
+    "details": {
+      "field": "name",
+      "reason": "Must be lowercase alphanumeric"
+    }
+  },
+  "meta": {
+    "request_id": "req_abc123"
+  }
+}
+```
+
+## HTTP Status Codes
+
+| Status | Description |
+|--------|-------------|
+| 200 | Success |
+| 201 | Created |
+| 400 | Bad Request - Invalid parameters |
+| 401 | Unauthorized - Invalid or missing token |
+| 403 | Forbidden - Insufficient permissions |
+| 404 | Not Found |
+| 429 | Too Many Requests - Rate limited |
+| 500 | Internal Server Error |
+
+## Rate Limiting
+
+API requests are rate limited per API key:
+
+| Plan | Requests/minute |
+|------|-----------------|
+| Free | 60 |
+| Pro | 600 |
+| Enterprise | Custom |
+
+Rate limit headers are included in responses:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 55
+X-RateLimit-Reset: 1640000000
+```
+
+## Pagination
+
+List endpoints support pagination:
+
+```bash
+curl "https://api.itsfriday.in/v1/logs/?limit=50&offset=100"
+```
+
+Response includes pagination info:
+
+```json
+{
+  "data": [...],
+  "meta": {
+    "total": 1000,
+    "limit": 50,
+    "offset": 100
+  }
+}
+```
+
+## Endpoints Overview
+
+<CardGroup cols={2}>
+  <Card title="Metrics" icon="chart-line" href="/api-reference/metrics">
+    Send and query time-series metrics
+  </Card>
+  <Card title="Logs" icon="file-lines" href="/api-reference/logs">
+    Send and search structured logs
+  </Card>
+  <Card title="Traces" icon="diagram-project" href="/api-reference/traces">
+    Send and query distributed traces
+  </Card>
+  <Card title="Health" icon="heart-pulse" href="/api-reference/health">
+    Health check endpoints
+  </Card>
+</CardGroup>
+
+## SDKs
+
+Official SDKs are available for:
+
+- Python: `pip install itsfriday`
+- JavaScript: `npm install @itsfriday/sdk`
+- Go: `go get github.com/itsfriday-in/sdk-go`
+
+## Interactive API Docs
+
+Explore the API interactively:
+
+- **Swagger UI**: [/api/v1/docs](/api/v1/docs)
+- **OpenAPI Spec**: [/api/v1/openapi.json](/api/v1/openapi.json)

@@ -1,204 +1,358 @@
 # ItsFriday
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+### SettingUp Initial Project There is no First Release Yet
+[//]: # ()
+[//]: # ([![License: MIT]&#40;https://img.shields.io/badge/License-MIT-yellow.svg&#41;]&#40;https://opensource.org/licenses/MIT&#41;)
 
-**ItsFriday** is a modern observability platform for monitoring APIs. Built with Django, React, ClickHouse, and PostgreSQL.
+[//]: # ()
+[//]: # (**ItsFriday** is a modern observability platform for monitoring APIs. Built with Django, React, ClickHouse, and PostgreSQL.)
 
-## Quick Start
+[//]: # ()
+[//]: # (## Quick Start)
 
-```bash
-# Clone the repository
-git clone https://github.com/itsfriday-in/itsfriday.git
-cd itsfriday
+[//]: # ()
+[//]: # (```bash)
 
-# Run quickstart (Docker only required)
-./scripts/quickstart.sh
-```
+[//]: # (# Clone the repository)
 
-Access the application at http://localhost
+[//]: # (git clone https://github.com/itsfriday-in/itsfriday.git)
 
-## Architecture
+[//]: # (cd itsfriday)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Load Balancer                            │
-│                           (Nginx)                                │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-          ┌───────────────┼───────────────┐
-          │               │               │
-          ▼               ▼               ▼
-    ┌──────────┐    ┌──────────┐    ┌──────────┐
-    │ Frontend │    │  API     │    │  Worker  │
-    │ (React)  │    │ (Django) │    │ (Celery) │
-    └──────────┘    └────┬─────┘    └────┬─────┘
-                         │               │
-         ┌───────────────┼───────────────┤
-         │               │               │
-         ▼               ▼               ▼
-   ┌──────────┐    ┌──────────┐    ┌──────────┐
-   │PostgreSQL│    │ClickHouse│    │  Redis   │
-   │ (Config) │    │ (Metrics)│    │ (Cache)  │
-   └──────────┘    └──────────┘    └──────────┘
-```
+[//]: # ()
+[//]: # (# Run quickstart &#40;Docker only required&#41;)
 
-## Tech Stack
+[//]: # (./scripts/quickstart.sh)
 
-| Component | Technology |
-|-----------|------------|
-| Backend API | Django 5 + Django Ninja |
-| Frontend | React 18 + Vite + TypeScript |
-| Analytics DB | ClickHouse |
-| Config DB | PostgreSQL |
-| Cache/Queue | Redis |
-| Task Queue | Celery |
-| Auth | Auth0 |
+[//]: # (```)
 
-## System Requirements
+[//]: # ()
+[//]: # (Access the application at http://localhost)
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| CPU | 2 cores | 4+ cores |
-| RAM | 4 GB | 8+ GB |
-| Storage | 20 GB | 100+ GB SSD |
-| Docker | 20.10+ | Latest |
+[//]: # ()
+[//]: # (## Architecture)
 
-## Installation
+[//]: # ()
+[//]: # (```)
 
-### Option 1: Docker (Recommended)
+[//]: # (┌─────────────────────────────────────────────────────────────────┐)
 
-```bash
-# Development
-docker-compose up -d
+[//]: # (│                         Load Balancer                            │)
 
-# Production
-docker-compose -f docker-compose.prod.yml up -d
-```
+[//]: # (│                           &#40;Nginx&#41;                                │)
 
-### Option 2: Local Development
+[//]: # (└─────────────────────────┬───────────────────────────────────────┘)
 
-```bash
-# Run setup script
-./scripts/setup-dev.sh
+[//]: # (                          │)
 
-# Or manually:
-# 1. Install dependencies
-uv sync --extra dev
-cd static && npm install && cd ..
+[//]: # (          ┌───────────────┼───────────────┐)
 
-# 2. Start services
-docker-compose up -d
+[//]: # (          │               │               │)
 
-# 3. Run migrations
-cd src && python manage.py migrate
+[//]: # (          ▼               ▼               ▼)
 
-# 4. Start servers
-python manage.py runserver  # Backend
-cd ../static && npm run dev  # Frontend
-```
+[//]: # (    ┌──────────┐    ┌──────────┐    ┌──────────┐)
 
-### Option 3: Production VM
+[//]: # (    │ Frontend │    │  API     │    │  Worker  │)
 
-```bash
-./scripts/deploy-vm.sh your-domain.com admin@email.com
-```
+[//]: # (    │ &#40;React&#41;  │    │ &#40;Django&#41; │    │ &#40;Celery&#41; │)
 
-## Development
+[//]: # (    └──────────┘    └────┬─────┘    └────┬─────┘)
 
-### Running the Backend
+[//]: # (                         │               │)
 
-```bash
-source .venv/bin/activate
-cd src
-python manage.py runserver
-```
+[//]: # (         ┌───────────────┼───────────────┤)
 
-API available at http://localhost:8000/api/v1/
+[//]: # (         │               │               │)
 
-### Running the Frontend
+[//]: # (         ▼               ▼               ▼)
 
-```bash
-cd static
-npm run dev
-```
+[//]: # (   ┌──────────┐    ┌──────────┐    ┌──────────┐)
 
-Frontend available at http://localhost:3000
+[//]: # (   │PostgreSQL│    │ClickHouse│    │  Redis   │)
 
-### Running Tests
+[//]: # (   │ &#40;Config&#41; │    │ &#40;Metrics&#41;│    │ &#40;Cache&#41;  │)
 
-```bash
-# All tests
-./scripts/test.sh
+[//]: # (   └──────────┘    └──────────┘    └──────────┘)
 
-# Backend only
-cd src && pytest
+[//]: # (```)
 
-# Frontend only
-cd static && npm test
-```
+[//]: # ()
+[//]: # (## Tech Stack)
 
-### Code Quality
+[//]: # ()
+[//]: # (| Component | Technology |)
 
-```bash
-# Linting
-ruff check src/
-cd static && npm run lint
+[//]: # (|-----------|------------|)
 
-# Formatting
-black src/
-cd static && npm run format
-```
+[//]: # (| Backend API | Django 5 + Django Ninja |)
 
-## Project Structure
+[//]: # (| Frontend | React 18 + Vite + TypeScript |)
 
-```
-itsfriday/
-├── src/                    # Django backend
-│   ├── api/               # API endpoints
-│   │   └── v1/           # API version 1
-│   ├── apps/             # Django apps
-│   ├── config/           # Django settings
-│   │   └── settings/     # Environment configs
-│   ├── core/             # Shared utilities
-│   │   ├── auth/        # Authentication
-│   │   └── database/    # Database clients
-│   └── tests/            # Test files
-├── static/                # React frontend
-│   ├── src/              # Source code
-│   └── dist/             # Build output
-├── infrastructure/        # Deployment configs
-│   ├── docker/           # Dockerfiles
-│   └── systemd/          # Service files
-├── scripts/               # Utility scripts
-├── docker-compose.yml     # Development services
-└── docker-compose.prod.yml # Production services
-```
+[//]: # (| Analytics DB | ClickHouse |)
 
-## Environment Variables
+[//]: # (| Config DB | PostgreSQL |)
 
-Copy `.env.example` to `.env` and configure:
+[//]: # (| Cache/Queue | Redis |)
 
-```bash
-cp .env.example .env
-```
+[//]: # (| Task Queue | Celery |)
 
-Key variables:
-- `DJANGO_SECRET_KEY` - Django secret key
-- `POSTGRES_*` - PostgreSQL connection
-- `CLICKHOUSE_*` - ClickHouse connection
-- `AUTH0_*` - Auth0 configuration
-- `VITE_*` - Frontend configuration
+[//]: # (| Auth | Auth0 |)
 
-## API Documentation
+[//]: # ()
+[//]: # (## System Requirements)
 
-When running, access API docs at:
-- Swagger UI: http://localhost:8000/api/v1/docs
-- OpenAPI JSON: http://localhost:8000/api/v1/openapi.json
+[//]: # ()
+[//]: # (| Resource | Minimum | Recommended |)
 
-## Contributing
+[//]: # (|----------|---------|-------------|)
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+[//]: # (| CPU | 2 cores | 4+ cores |)
 
-## License
+[//]: # (| RAM | 4 GB | 8+ GB |)
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+[//]: # (| Storage | 20 GB | 100+ GB SSD |)
+
+[//]: # (| Docker | 20.10+ | Latest |)
+
+[//]: # ()
+[//]: # (## Installation)
+
+[//]: # ()
+[//]: # (### Option 1: Docker &#40;Recommended&#41;)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (# Development)
+
+[//]: # (docker-compose up -d)
+
+[//]: # ()
+[//]: # (# Production)
+
+[//]: # (docker-compose -f docker-compose.prod.yml up -d)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (### Option 2: Local Development)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (# Run setup script)
+
+[//]: # (./scripts/setup-dev.sh)
+
+[//]: # ()
+[//]: # (# Or manually:)
+
+[//]: # (# 1. Install dependencies)
+
+[//]: # (uv sync --extra dev)
+
+[//]: # (cd static && npm install && cd ..)
+
+[//]: # ()
+[//]: # (# 2. Start services)
+
+[//]: # (docker-compose up -d)
+
+[//]: # ()
+[//]: # (# 3. Run migrations)
+
+[//]: # (cd src && python manage.py migrate)
+
+[//]: # ()
+[//]: # (# 4. Start servers)
+
+[//]: # (python manage.py runserver  # Backend)
+
+[//]: # (cd ../static && npm run dev  # Frontend)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (### Option 3: Production VM)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (./scripts/deploy-vm.sh your-domain.com admin@email.com)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (## Development)
+
+[//]: # ()
+[//]: # (### Running the Backend)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (source .venv/bin/activate)
+
+[//]: # (cd src)
+
+[//]: # (python manage.py runserver)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (API available at http://localhost:8000/api/v1/)
+
+[//]: # ()
+[//]: # (### Running the Frontend)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (cd static)
+
+[//]: # (npm run dev)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (Frontend available at http://localhost:3000)
+
+[//]: # ()
+[//]: # (### Running Tests)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (# All tests)
+
+[//]: # (./scripts/test.sh)
+
+[//]: # ()
+[//]: # (# Backend only)
+
+[//]: # (cd src && pytest)
+
+[//]: # ()
+[//]: # (# Frontend only)
+
+[//]: # (cd static && npm test)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (### Code Quality)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (# Linting)
+
+[//]: # (ruff check src/)
+
+[//]: # (cd static && npm run lint)
+
+[//]: # ()
+[//]: # (# Formatting)
+
+[//]: # (black src/)
+
+[//]: # (cd static && npm run format)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (## Project Structure)
+
+[//]: # ()
+[//]: # (```)
+
+[//]: # (itsfriday/)
+
+[//]: # (├── src/                    # Django backend)
+
+[//]: # (│   ├── api/               # API endpoints)
+
+[//]: # (│   │   └── v1/           # API version 1)
+
+[//]: # (│   ├── apps/             # Django apps)
+
+[//]: # (│   ├── config/           # Django settings)
+
+[//]: # (│   │   └── settings/     # Environment configs)
+
+[//]: # (│   ├── core/             # Shared utilities)
+
+[//]: # (│   │   ├── auth/        # Authentication)
+
+[//]: # (│   │   └── database/    # Database clients)
+
+[//]: # (│   └── tests/            # Test files)
+
+[//]: # (├── static/                # React frontend)
+
+[//]: # (│   ├── src/              # Source code)
+
+[//]: # (│   └── dist/             # Build output)
+
+[//]: # (├── infrastructure/        # Deployment configs)
+
+[//]: # (│   ├── docker/           # Dockerfiles)
+
+[//]: # (│   └── systemd/          # Service files)
+
+[//]: # (├── scripts/               # Utility scripts)
+
+[//]: # (├── docker-compose.yml     # Development services)
+
+[//]: # (└── docker-compose.prod.yml # Production services)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (## Environment Variables)
+
+[//]: # ()
+[//]: # (Copy `.env.example` to `.env` and configure:)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (cp .env.example .env)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (Key variables:)
+
+[//]: # (- `DJANGO_SECRET_KEY` - Django secret key)
+
+[//]: # (- `POSTGRES_*` - PostgreSQL connection)
+
+[//]: # (- `CLICKHOUSE_*` - ClickHouse connection)
+
+[//]: # (- `AUTH0_*` - Auth0 configuration)
+
+[//]: # (- `VITE_*` - Frontend configuration)
+
+[//]: # ()
+[//]: # (## API Documentation)
+
+[//]: # ()
+[//]: # (When running, access API docs at:)
+
+[//]: # (- Swagger UI: http://localhost:8000/api/v1/docs)
+
+[//]: # (- OpenAPI JSON: http://localhost:8000/api/v1/openapi.json)
+
+[//]: # ()
+[//]: # (## Contributing)
+
+[//]: # ()
+[//]: # (See [CONTRIBUTING.md]&#40;CONTRIBUTING.md&#41; for guidelines.)
+
+[//]: # ()
+[//]: # (## License)
+
+[//]: # ()
+[//]: # (This project is licensed under the MIT License - see [LICENSE]&#40;LICENSE&#41; for details.)

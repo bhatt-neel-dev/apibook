@@ -1,0 +1,263 @@
+---
+title: 'Metrics API'
+description: 'Send and query time-series metrics'
+---
+
+# Metrics API
+
+Send and query time-series metrics data.
+
+## Send Metric
+
+<ParamField body="name" type="string" required>
+  Metric name (lowercase, dot-separated)
+</ParamField>
+
+<ParamField body="value" type="number" required>
+  Metric value
+</ParamField>
+
+<ParamField body="timestamp" type="string">
+  ISO 8601 timestamp. Defaults to current time.
+</ParamField>
+
+<ParamField body="tags" type="object">
+  Key-value pairs for filtering and grouping
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.itsfriday.in/v1/metrics/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "api.request.duration.ms",
+    "value": 42.5,
+    "timestamp": "2024-01-15T10:30:00Z",
+    "tags": {
+      "endpoint": "/users",
+      "method": "GET",
+      "status": "200"
+    }
+  }'
+```
+
+```python Python
+from itsfriday import Client
+
+client = Client(api_key="YOUR_API_KEY")
+
+client.metrics.send(
+    name="api.request.duration.ms",
+    value=42.5,
+    tags={
+        "endpoint": "/users",
+        "method": "GET",
+        "status": "200"
+    }
+)
+```
+
+```javascript JavaScript
+import { ItsFriday } from '@itsfriday/sdk';
+
+const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+
+await client.metrics.send({
+  name: 'api.request.duration.ms',
+  value: 42.5,
+  tags: {
+    endpoint: '/users',
+    method: 'GET',
+    status: '200'
+  }
+});
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "accepted": true
+  },
+  "meta": {
+    "request_id": "req_abc123"
+  }
+}
+```
+
+---
+
+## Send Batch Metrics
+
+Send multiple metrics in a single request.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.itsfriday.in/v1/metrics/batch/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "metrics": [
+      {
+        "name": "api.request.count",
+        "value": 1,
+        "tags": {"endpoint": "/users"}
+      },
+      {
+        "name": "api.request.duration.ms",
+        "value": 45.2,
+        "tags": {"endpoint": "/users"}
+      }
+    ]
+  }'
+```
+
+```python Python
+client.metrics.send_batch([
+    {"name": "api.request.count", "value": 1, "tags": {"endpoint": "/users"}},
+    {"name": "api.request.duration.ms", "value": 45.2, "tags": {"endpoint": "/users"}}
+])
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "accepted": 2,
+    "failed": 0
+  }
+}
+```
+
+---
+
+## Query Metrics
+
+Query aggregated metrics data.
+
+<ParamField query="name" type="string" required>
+  Metric name to query
+</ParamField>
+
+<ParamField query="from" type="string" required>
+  Start time (ISO 8601)
+</ParamField>
+
+<ParamField query="to" type="string" required>
+  End time (ISO 8601)
+</ParamField>
+
+<ParamField query="aggregation" type="string" default="avg">
+  Aggregation function: `sum`, `avg`, `min`, `max`, `count`, `p50`, `p95`, `p99`
+</ParamField>
+
+<ParamField query="interval" type="string" default="1h">
+  Time bucket size: `1m`, `5m`, `15m`, `1h`, `1d`
+</ParamField>
+
+<ParamField query="group_by" type="string">
+  Comma-separated tag names to group by
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -G "https://api.itsfriday.in/v1/metrics/query/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  --data-urlencode "name=api.request.duration.ms" \
+  --data-urlencode "from=2024-01-15T00:00:00Z" \
+  --data-urlencode "to=2024-01-16T00:00:00Z" \
+  --data-urlencode "aggregation=avg" \
+  --data-urlencode "interval=1h" \
+  --data-urlencode "group_by=endpoint"
+```
+
+```python Python
+results = client.metrics.query(
+    name="api.request.duration.ms",
+    start="2024-01-15T00:00:00Z",
+    end="2024-01-16T00:00:00Z",
+    aggregation="avg",
+    interval="1h",
+    group_by=["endpoint"]
+)
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "series": [
+      {
+        "tags": {"endpoint": "/users"},
+        "datapoints": [
+          {"timestamp": "2024-01-15T00:00:00Z", "value": 42.5},
+          {"timestamp": "2024-01-15T01:00:00Z", "value": 38.2},
+          {"timestamp": "2024-01-15T02:00:00Z", "value": 45.8}
+        ]
+      },
+      {
+        "tags": {"endpoint": "/orders"},
+        "datapoints": [
+          {"timestamp": "2024-01-15T00:00:00Z", "value": 125.3},
+          {"timestamp": "2024-01-15T01:00:00Z", "value": 118.7}
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## List Available Metrics
+
+Get a list of all metric names.
+
+```bash
+curl -G "https://api.itsfriday.in/v1/metrics/names/" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Response
+
+```json
+{
+  "data": {
+    "names": [
+      "api.request.count",
+      "api.request.duration.ms",
+      "api.error.count"
+    ]
+  }
+}
+```
+
+---
+
+## Get Tag Values
+
+Get possible values for a metric tag.
+
+```bash
+curl -G "https://api.itsfriday.in/v1/metrics/tags/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  --data-urlencode "name=api.request.count" \
+  --data-urlencode "tag=endpoint"
+```
+
+### Response
+
+```json
+{
+  "data": {
+    "values": ["/users", "/orders", "/products"]
+  }
+}
+```

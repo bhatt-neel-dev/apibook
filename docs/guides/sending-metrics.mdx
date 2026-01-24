@@ -1,0 +1,243 @@
+---
+title: 'Sending Metrics'
+description: 'Learn how to send metrics to ItsFriday'
+---
+
+# Sending Metrics
+
+Metrics are time-series data points that help you track the performance and behavior of your APIs.
+
+## Metric Types
+
+ItsFriday supports several metric types:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| Counter | Monotonically increasing value | Request count, error count |
+| Gauge | Point-in-time value | CPU usage, memory usage |
+| Histogram | Distribution of values | Response time distribution |
+| Summary | Statistical summary | P50, P95, P99 latencies |
+
+## Sending Metrics via API
+
+### Basic Metric
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/metrics/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "name": "api.requests.total",
+    "value": 1,
+    "tags": {
+      "endpoint": "/users",
+      "method": "GET",
+      "status": "200"
+    }
+  }'
+```
+
+### Batch Metrics
+
+Send multiple metrics in a single request:
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/metrics/batch/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "metrics": [
+      {
+        "name": "api.latency.ms",
+        "value": 45.2,
+        "tags": {"endpoint": "/users"}
+      },
+      {
+        "name": "api.requests.total",
+        "value": 1,
+        "tags": {"endpoint": "/users"}
+      }
+    ]
+  }'
+```
+
+## Python SDK
+
+```python
+from itsfriday import Client
+
+client = Client(api_key="YOUR_API_KEY")
+
+# Send a single metric
+client.metrics.send(
+    name="api.requests.total",
+    value=1,
+    tags={
+        "endpoint": "/users",
+        "method": "GET"
+    }
+)
+
+# Send with timestamp
+from datetime import datetime
+
+client.metrics.send(
+    name="api.latency.ms",
+    value=42.5,
+    timestamp=datetime.utcnow(),
+    tags={"endpoint": "/users"}
+)
+```
+
+### Django Middleware Example
+
+```python
+import time
+from itsfriday import Client
+
+client = Client(api_key="YOUR_API_KEY")
+
+class MetricsMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        start_time = time.time()
+
+        response = self.get_response(request)
+
+        # Calculate duration
+        duration_ms = (time.time() - start_time) * 1000
+
+        # Send metrics
+        client.metrics.send(
+            name="http.request.duration.ms",
+            value=duration_ms,
+            tags={
+                "method": request.method,
+                "path": request.path,
+                "status": str(response.status_code)
+            }
+        )
+
+        return response
+```
+
+## JavaScript/Node.js
+
+```javascript
+import { ItsFriday } from '@itsfriday/sdk';
+
+const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+
+// Send metric
+await client.metrics.send({
+  name: 'api.requests.total',
+  value: 1,
+  tags: {
+    endpoint: '/users',
+    method: 'GET'
+  }
+});
+
+// Express middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+
+    client.metrics.send({
+      name: 'http.request.duration.ms',
+      value: duration,
+      tags: {
+        method: req.method,
+        path: req.path,
+        status: res.statusCode.toString()
+      }
+    });
+  });
+
+  next();
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use consistent naming conventions">
+    Use dot-separated, lowercase names:
+    ```
+    ✅ api.requests.total
+    ✅ http.response.time.ms
+    ✅ database.query.duration
+
+    ❌ API_Requests_Total
+    ❌ httpResponseTime
+    ```
+  </Accordion>
+
+  <Accordion title="Add meaningful tags">
+    Tags should help you filter and group metrics:
+    ```python
+    # Good: Specific, filterable tags
+    tags={
+        "endpoint": "/api/users",
+        "method": "POST",
+        "status_code": "201",
+        "environment": "production"
+    }
+
+    # Avoid: High-cardinality tags
+    tags={
+        "user_id": "12345",  # Too many unique values
+        "timestamp": "..."    # Use metric timestamp instead
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Batch your metrics">
+    Send metrics in batches when possible to reduce API calls:
+    ```python
+    # Buffer metrics and send in batches
+    client.metrics.send_batch([
+        {"name": "metric1", "value": 1},
+        {"name": "metric2", "value": 2},
+        # ... more metrics
+    ])
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Querying Metrics
+
+Once sent, query your metrics:
+
+```bash
+curl "https://api.itsfriday.in/v1/metrics/query/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -G \
+  --data-urlencode "name=api.requests.total" \
+  --data-urlencode "from=2024-01-01T00:00:00Z" \
+  --data-urlencode "to=2024-01-02T00:00:00Z" \
+  --data-urlencode "interval=1h"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Collecting Logs"
+    icon="file-lines"
+    href="/guides/collecting-logs"
+  >
+    Send structured logs
+  </Card>
+  <Card
+    title="Creating Dashboards"
+    icon="chart-pie"
+    href="/guides/creating-dashboards"
+  >
+    Visualize your metrics
+  </Card>
+</CardGroup>

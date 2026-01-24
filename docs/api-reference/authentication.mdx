@@ -1,0 +1,141 @@
+---
+title: 'Authentication'
+description: 'Authenticate with the ItsFriday API'
+---
+
+# Authentication
+
+ItsFriday uses API keys and OAuth 2.0 for authentication.
+
+## API Keys
+
+API keys are used for server-to-server communication.
+
+### Creating an API Key
+
+1. Navigate to **Settings > API Keys** in the dashboard
+2. Click **Create API Key**
+3. Give it a name and select permissions
+4. Copy and store the key securely
+
+<Warning>
+  API keys are shown only once. Store them securely - you cannot retrieve them later.
+</Warning>
+
+### Using API Keys
+
+Include the API key in the `Authorization` header:
+
+```bash
+curl https://api.itsfriday.in/v1/metrics/ \
+  -H "Authorization: Bearer if_live_abc123..."
+```
+
+### Key Prefixes
+
+| Prefix | Environment |
+|--------|-------------|
+| `if_live_` | Production |
+| `if_test_` | Test/Development |
+
+### Key Permissions
+
+| Permission | Access |
+|------------|--------|
+| `read` | Query data |
+| `write` | Send data |
+| `admin` | Manage settings |
+
+## OAuth 2.0 (Auth0)
+
+For user authentication and the dashboard, we use Auth0.
+
+### Configuration
+
+Set these environment variables:
+
+```bash
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_AUDIENCE=https://api.itsfriday.in
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_CLIENT_SECRET=your-client-secret
+```
+
+### Getting an Access Token
+
+```bash
+curl -X POST https://your-tenant.auth0.com/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "YOUR_CLIENT_ID",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "audience": "https://api.itsfriday.in",
+    "grant_type": "client_credentials"
+  }'
+```
+
+Response:
+
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 86400
+}
+```
+
+### Using the Token
+
+```bash
+curl https://api.itsfriday.in/v1/metrics/ \
+  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+## Multi-Tenant Access
+
+Each request is scoped to the tenant associated with the API key or token.
+
+The tenant ID is extracted from:
+1. API key association
+2. `org_id` claim in JWT token
+3. `X-Tenant-ID` header (admin only)
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Rotate keys regularly">
+    Create new keys and deprecate old ones every 90 days.
+  </Accordion>
+
+  <Accordion title="Use separate keys per environment">
+    Never use production keys in development.
+  </Accordion>
+
+  <Accordion title="Store keys securely">
+    Use environment variables or secret managers. Never commit keys to git.
+  </Accordion>
+
+  <Accordion title="Use minimum permissions">
+    Only grant permissions that are actually needed.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="401 Unauthorized">
+    - Check if the API key is valid
+    - Verify the key has correct permissions
+    - Ensure `Bearer` prefix is included
+  </Accordion>
+
+  <Accordion title="403 Forbidden">
+    - The key doesn't have required permissions
+    - Trying to access another tenant's data
+  </Accordion>
+
+  <Accordion title="Token expired">
+    - OAuth tokens expire after 24 hours
+    - Request a new token using client credentials
+  </Accordion>
+</AccordionGroup>

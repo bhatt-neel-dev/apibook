@@ -1,0 +1,301 @@
+---
+title: 'Creating Dashboards'
+description: 'Build custom dashboards to visualize your observability data'
+---
+
+# Creating Dashboards
+
+Dashboards help you visualize metrics, logs, and traces in real-time.
+
+## Dashboard Overview
+
+Each dashboard can contain multiple panels displaying:
+
+- **Charts** - Line, bar, area, and pie charts for metrics
+- **Tables** - Tabular data from logs and traces
+- **Stats** - Single value displays for KPIs
+- **Heatmaps** - Distribution visualizations
+
+## Creating a Dashboard
+
+### Via UI
+
+1. Navigate to **Dashboards** in the sidebar
+2. Click **New Dashboard**
+3. Give it a name and description
+4. Add panels by clicking **Add Panel**
+
+### Via API
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/dashboards/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "name": "API Performance",
+    "description": "Monitor API response times and error rates",
+    "panels": [
+      {
+        "title": "Request Latency",
+        "type": "line_chart",
+        "query": {
+          "metric": "api.latency.ms",
+          "aggregation": "avg",
+          "group_by": ["endpoint"]
+        },
+        "position": {"x": 0, "y": 0, "w": 6, "h": 4}
+      }
+    ]
+  }'
+```
+
+## Panel Types
+
+### Line Chart
+
+Perfect for time-series metrics:
+
+```json
+{
+  "title": "Request Rate",
+  "type": "line_chart",
+  "query": {
+    "metric": "api.requests.total",
+    "aggregation": "sum",
+    "interval": "1m",
+    "group_by": ["endpoint"]
+  }
+}
+```
+
+### Bar Chart
+
+Compare values across categories:
+
+```json
+{
+  "title": "Requests by Endpoint",
+  "type": "bar_chart",
+  "query": {
+    "metric": "api.requests.total",
+    "aggregation": "sum",
+    "group_by": ["endpoint"]
+  }
+}
+```
+
+### Stat Panel
+
+Display a single important value:
+
+```json
+{
+  "title": "Total Requests",
+  "type": "stat",
+  "query": {
+    "metric": "api.requests.total",
+    "aggregation": "sum"
+  },
+  "options": {
+    "format": "number",
+    "suffix": " req"
+  }
+}
+```
+
+### Table
+
+Display logs or trace data:
+
+```json
+{
+  "title": "Recent Errors",
+  "type": "table",
+  "query": {
+    "source": "logs",
+    "filter": {"level": "error"},
+    "fields": ["timestamp", "message", "attributes.error_code"],
+    "limit": 50
+  }
+}
+```
+
+## Query Language
+
+### Metric Queries
+
+```yaml
+metric: api.latency.ms        # Metric name
+aggregation: avg              # sum, avg, min, max, p50, p95, p99
+interval: 1m                  # Time bucket size
+group_by:                     # Group by tags
+  - endpoint
+  - method
+filters:                      # Filter by tags
+  method: GET
+  status: "200"
+```
+
+### Log Queries
+
+```yaml
+source: logs
+filter:
+  level: error
+  attributes.service: api-gateway
+search: "connection refused"
+fields:
+  - timestamp
+  - message
+  - attributes.error_code
+order_by: timestamp
+order: desc
+limit: 100
+```
+
+## Example Dashboards
+
+### API Overview Dashboard
+
+```json
+{
+  "name": "API Overview",
+  "panels": [
+    {
+      "title": "Request Rate",
+      "type": "line_chart",
+      "query": {
+        "metric": "api.requests.total",
+        "aggregation": "sum",
+        "interval": "1m"
+      },
+      "position": {"x": 0, "y": 0, "w": 6, "h": 4}
+    },
+    {
+      "title": "Average Latency",
+      "type": "line_chart",
+      "query": {
+        "metric": "api.latency.ms",
+        "aggregation": "avg",
+        "interval": "1m"
+      },
+      "position": {"x": 6, "y": 0, "w": 6, "h": 4}
+    },
+    {
+      "title": "Error Rate",
+      "type": "stat",
+      "query": {
+        "metric": "api.errors.total",
+        "aggregation": "sum"
+      },
+      "position": {"x": 0, "y": 4, "w": 3, "h": 2}
+    },
+    {
+      "title": "P99 Latency",
+      "type": "stat",
+      "query": {
+        "metric": "api.latency.ms",
+        "aggregation": "p99"
+      },
+      "options": {"suffix": " ms"},
+      "position": {"x": 3, "y": 4, "w": 3, "h": 2}
+    }
+  ]
+}
+```
+
+## Variables
+
+Make dashboards dynamic with variables:
+
+```json
+{
+  "variables": [
+    {
+      "name": "environment",
+      "type": "custom",
+      "options": ["production", "staging", "development"]
+    },
+    {
+      "name": "endpoint",
+      "type": "query",
+      "query": {
+        "metric": "api.requests.total",
+        "distinct": "endpoint"
+      }
+    }
+  ],
+  "panels": [
+    {
+      "query": {
+        "metric": "api.latency.ms",
+        "filters": {
+          "environment": "$environment",
+          "endpoint": "$endpoint"
+        }
+      }
+    }
+  ]
+}
+```
+
+## Sharing Dashboards
+
+### Public Link
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/dashboards/dash_123/share/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"public": true}'
+```
+
+### Export/Import
+
+```bash
+# Export
+curl https://api.itsfriday.in/v1/dashboards/dash_123/export/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -o dashboard.json
+
+# Import
+curl -X POST https://api.itsfriday.in/v1/dashboards/import/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d @dashboard.json
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Organize related metrics">
+    Group related panels together. Use rows to separate sections.
+  </Accordion>
+
+  <Accordion title="Use appropriate time ranges">
+    - Real-time monitoring: 15m - 1h
+    - Daily patterns: 24h
+    - Trend analysis: 7d - 30d
+  </Accordion>
+
+  <Accordion title="Add descriptions">
+    Include panel descriptions explaining what the metric shows and what values are concerning.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference/introduction"
+  >
+    Explore all API endpoints
+  </Card>
+  <Card
+    title="Self-Hosting"
+    icon="server"
+    href="/self-hosting/requirements"
+  >
+    Deploy your own instance
+  </Card>
+</CardGroup>

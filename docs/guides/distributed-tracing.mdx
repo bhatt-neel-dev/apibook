@@ -1,0 +1,287 @@
+---
+title: 'Distributed Tracing'
+description: 'Track requests across services with distributed tracing'
+---
+
+# Distributed Tracing
+
+Distributed tracing helps you understand how requests flow through your microservices architecture.
+
+## Concepts
+
+<CardGroup cols={2}>
+  <Card title="Trace" icon="route">
+    A complete request journey from start to finish, containing multiple spans.
+  </Card>
+  <Card title="Span" icon="arrows-left-right">
+    A single operation within a trace, like an API call or database query.
+  </Card>
+</CardGroup>
+
+### Trace Hierarchy
+
+```
+Trace: abc-123
+├── Span: API Gateway (root)
+│   ├── Span: Auth Service
+│   │   └── Span: Database Query
+│   └── Span: User Service
+│       ├── Span: Cache Lookup
+│       └── Span: Database Query
+```
+
+## Sending Traces
+
+### Basic Span
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/traces/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "trace_id": "abc123def456",
+    "span_id": "span001",
+    "parent_span_id": null,
+    "operation_name": "HTTP GET /users",
+    "service_name": "api-gateway",
+    "duration_ms": 145.5,
+    "status_code": "OK",
+    "attributes": {
+      "http.method": "GET",
+      "http.url": "/users",
+      "http.status_code": "200"
+    }
+  }'
+```
+
+### Child Span
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/traces/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "trace_id": "abc123def456",
+    "span_id": "span002",
+    "parent_span_id": "span001",
+    "operation_name": "SELECT users",
+    "service_name": "user-service",
+    "duration_ms": 12.3,
+    "status_code": "OK",
+    "attributes": {
+      "db.system": "postgresql",
+      "db.statement": "SELECT * FROM users"
+    }
+  }'
+```
+
+## Python Integration
+
+```python
+from itsfriday import Client
+from itsfriday.tracing import Tracer
+import uuid
+
+client = Client(api_key="YOUR_API_KEY")
+tracer = Tracer(client)
+
+# Create a trace
+with tracer.start_trace("HTTP GET /users") as trace:
+    # Root span is automatically created
+
+    # Create child span for database
+    with trace.span("Database Query") as span:
+        span.set_attribute("db.system", "postgresql")
+        span.set_attribute("db.statement", "SELECT * FROM users")
+
+        # Your database code here
+        users = db.query("SELECT * FROM users")
+
+    # Create another child span
+    with trace.span("Serialize Response") as span:
+        response = serialize(users)
+```
+
+### Flask Integration
+
+```python
+from flask import Flask, request, g
+from itsfriday import Client
+from itsfriday.tracing import Tracer
+import uuid
+
+app = Flask(__name__)
+client = Client(api_key="YOUR_API_KEY")
+tracer = Tracer(client)
+
+@app.before_request
+def start_trace():
+    trace_id = request.headers.get('X-Trace-ID', str(uuid.uuid4()))
+    g.trace = tracer.start_trace(
+        f"{request.method} {request.path}",
+        trace_id=trace_id
+    )
+    g.trace.__enter__()
+
+@app.after_request
+def end_trace(response):
+    if hasattr(g, 'trace'):
+        g.trace.set_attribute("http.status_code", response.status_code)
+        g.trace.__exit__(None, None, None)
+    return response
+
+@app.route('/users')
+def get_users():
+    with g.trace.span("fetch_from_db") as span:
+        users = User.query.all()
+        span.set_attribute("user_count", len(users))
+    return jsonify(users)
+```
+
+## JavaScript/Node.js
+
+```javascript
+import { ItsFriday, Tracer } from '@itsfriday/sdk';
+import express from 'express';
+
+const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+const tracer = new Tracer(client);
+
+const app = express();
+
+// Tracing middleware
+app.use((req, res, next) => {
+  const traceId = req.headers['x-trace-id'] || generateId();
+  req.trace = tracer.startTrace(`${req.method} ${req.path}`, { traceId });
+
+  res.on('finish', () => {
+    req.trace.setStatus(res.statusCode < 400 ? 'OK' : 'ERROR');
+    req.trace.end();
+  });
+
+  next();
+});
+
+app.get('/users', async (req, res) => {
+  const span = req.trace.startSpan('database.query');
+
+  try {
+    const users = await db.query('SELECT * FROM users');
+    span.setAttributes({ 'db.rows': users.length });
+    span.end();
+
+    res.json(users);
+  } catch (error) {
+    span.setStatus('ERROR');
+    span.setAttributes({ 'error.message': error.message });
+    span.end();
+    throw error;
+  }
+});
+```
+
+## Propagating Trace Context
+
+Pass trace context between services using headers:
+
+```python
+# Service A: Outgoing request
+import requests
+
+def call_service_b(trace):
+    headers = {
+        'X-Trace-ID': trace.trace_id,
+        'X-Span-ID': trace.current_span_id,
+    }
+    response = requests.get('http://service-b/api', headers=headers)
+    return response
+
+# Service B: Incoming request
+@app.before_request
+def extract_trace_context():
+    trace_id = request.headers.get('X-Trace-ID')
+    parent_span_id = request.headers.get('X-Span-ID')
+
+    g.trace = tracer.start_trace(
+        f"{request.method} {request.path}",
+        trace_id=trace_id,
+        parent_span_id=parent_span_id
+    )
+```
+
+## Viewing Traces
+
+Query traces in the dashboard or via API:
+
+```bash
+# Get trace by ID
+curl "https://api.itsfriday.in/v1/traces/abc123def456" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# Search traces
+curl "https://api.itsfriday.in/v1/traces/search/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -G \
+  --data-urlencode "service=api-gateway" \
+  --data-urlencode "min_duration_ms=100"
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Name spans descriptively">
+    ```python
+    # ✅ Good
+    span.operation_name = "PostgreSQL SELECT users"
+    span.operation_name = "Redis GET session:123"
+
+    # ❌ Avoid
+    span.operation_name = "query"
+    span.operation_name = "call"
+    ```
+  </Accordion>
+
+  <Accordion title="Add relevant attributes">
+    ```python
+    # Database spans
+    span.set_attribute("db.system", "postgresql")
+    span.set_attribute("db.statement", "SELECT ...")
+
+    # HTTP spans
+    span.set_attribute("http.method", "GET")
+    span.set_attribute("http.url", "/api/users")
+    span.set_attribute("http.status_code", 200)
+    ```
+  </Accordion>
+
+  <Accordion title="Handle errors properly">
+    ```python
+    with trace.span("risky_operation") as span:
+        try:
+            result = do_something()
+        except Exception as e:
+            span.set_status("ERROR")
+            span.set_attribute("error.message", str(e))
+            raise
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Creating Dashboards"
+    icon="chart-pie"
+    href="/guides/creating-dashboards"
+  >
+    Visualize trace data
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference/traces"
+  >
+    Full traces API documentation
+  </Card>
+</CardGroup>

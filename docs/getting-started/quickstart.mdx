@@ -1,0 +1,144 @@
+---
+title: 'Quickstart'
+description: 'Get ItsFriday running in under 5 minutes'
+---
+
+# Quickstart Guide
+
+Get ItsFriday up and running quickly using Docker.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+<Check>Docker installed ([Get Docker](https://docs.docker.com/get-docker/))</Check>
+<Check>Docker Compose installed</Check>
+<Check>At least 4GB RAM available</Check>
+
+## One-Command Setup
+
+The fastest way to get started is using our quickstart script:
+
+```bash
+# Clone the repository
+git clone https://github.com/itsfriday-in/itsfriday.git
+cd itsfriday
+
+# Run the quickstart script
+./scripts/quickstart.sh
+```
+
+This will:
+1. Create a `.env` file with generated secrets
+2. Start all services (PostgreSQL, ClickHouse, Redis, Backend, Frontend)
+3. Run database migrations
+4. Create a default admin user
+
+<Note>
+  The quickstart script creates a default admin user with email `admin@itsfriday.local` and password `admin`. **Change this immediately in production!**
+</Note>
+
+## Access the Application
+
+Once the setup completes, access:
+
+| Service | URL |
+|---------|-----|
+| Dashboard | [http://localhost](http://localhost) |
+| API | [http://localhost/api/v1/](http://localhost/api/v1/) |
+| API Docs | [http://localhost/api/v1/docs](http://localhost/api/v1/docs) |
+| Admin Panel | [http://localhost/admin/](http://localhost/admin/) |
+
+## Send Your First Metric
+
+Test the API by sending a metric:
+
+```bash
+curl -X POST http://localhost/api/v1/metrics/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "name": "api.request.duration",
+    "value": 42.5,
+    "tags": {
+      "endpoint": "/users",
+      "method": "GET"
+    }
+  }'
+```
+
+## Check Health Status
+
+Verify all services are running:
+
+```bash
+# Check API health
+curl http://localhost/api/v1/health/
+
+# Check readiness (includes database checks)
+curl http://localhost/api/v1/health/ready/
+```
+
+Expected response:
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0"
+}
+```
+
+## View Logs
+
+To see what's happening:
+
+```bash
+# View all logs
+docker-compose -f docker-compose.prod.yml logs -f
+
+# View specific service logs
+docker-compose -f docker-compose.prod.yml logs -f backend
+```
+
+## Stop the Application
+
+```bash
+docker-compose -f docker-compose.prod.yml down
+```
+
+To also remove data volumes:
+```bash
+docker-compose -f docker-compose.prod.yml down -v
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Full Installation"
+    icon="download"
+    href="/getting-started/installation"
+  >
+    Detailed installation options
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/self-hosting/configuration"
+  >
+    Configure environment variables
+  </Card>
+  <Card
+    title="Send Metrics"
+    icon="chart-line"
+    href="/guides/sending-metrics"
+  >
+    Learn to send metrics from your app
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference/introduction"
+  >
+    Explore all API endpoints
+  </Card>
+</CardGroup>

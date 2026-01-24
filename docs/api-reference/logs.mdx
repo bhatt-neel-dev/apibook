@@ -1,0 +1,250 @@
+---
+title: 'Logs API'
+description: 'Send and search structured logs'
+---
+
+# Logs API
+
+Send and search structured log data.
+
+## Send Log
+
+<ParamField body="level" type="string" required>
+  Log level: `debug`, `info`, `warn`, `error`
+</ParamField>
+
+<ParamField body="message" type="string" required>
+  Log message
+</ParamField>
+
+<ParamField body="timestamp" type="string">
+  ISO 8601 timestamp. Defaults to current time.
+</ParamField>
+
+<ParamField body="attributes" type="object">
+  Additional structured data
+</ParamField>
+
+<ParamField body="trace_id" type="string">
+  Trace ID for correlation
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.itsfriday.in/v1/logs/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "level": "info",
+    "message": "User login successful",
+    "attributes": {
+      "user_id": "user_123",
+      "ip_address": "192.168.1.1"
+    },
+    "trace_id": "abc123"
+  }'
+```
+
+```python Python
+client.logs.send(
+    level="info",
+    message="User login successful",
+    attributes={
+        "user_id": "user_123",
+        "ip_address": "192.168.1.1"
+    },
+    trace_id="abc123"
+)
+```
+
+```javascript JavaScript
+await client.logs.send({
+  level: 'info',
+  message: 'User login successful',
+  attributes: {
+    user_id: 'user_123',
+    ip_address: '192.168.1.1'
+  },
+  traceId: 'abc123'
+});
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "accepted": true
+  }
+}
+```
+
+---
+
+## Send Batch Logs
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.itsfriday.in/v1/logs/batch/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "logs": [
+      {
+        "level": "info",
+        "message": "Request started",
+        "attributes": {"request_id": "req_123"}
+      },
+      {
+        "level": "info",
+        "message": "Request completed",
+        "attributes": {"request_id": "req_123", "duration_ms": 45}
+      }
+    ]
+  }'
+```
+</CodeGroup>
+
+---
+
+## Search Logs
+
+<ParamField query="query" type="string">
+  Full-text search query
+</ParamField>
+
+<ParamField query="level" type="string">
+  Filter by log level
+</ParamField>
+
+<ParamField query="from" type="string">
+  Start time (ISO 8601)
+</ParamField>
+
+<ParamField query="to" type="string">
+  End time (ISO 8601)
+</ParamField>
+
+<ParamField query="attributes.*" type="string">
+  Filter by attribute value
+</ParamField>
+
+<ParamField query="limit" type="integer" default="100">
+  Maximum results to return
+</ParamField>
+
+<ParamField query="offset" type="integer" default="0">
+  Results offset for pagination
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -G "https://api.itsfriday.in/v1/logs/search/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  --data-urlencode "query=login failed" \
+  --data-urlencode "level=error" \
+  --data-urlencode "from=2024-01-15T00:00:00Z" \
+  --data-urlencode "limit=50"
+```
+
+```python Python
+results = client.logs.search(
+    query="login failed",
+    level="error",
+    start="2024-01-15T00:00:00Z",
+    limit=50
+)
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "logs": [
+      {
+        "timestamp": "2024-01-15T10:30:00Z",
+        "level": "error",
+        "message": "User login failed: invalid password",
+        "attributes": {
+          "user_id": "user_456",
+          "ip_address": "192.168.1.2",
+          "attempt": 3
+        },
+        "trace_id": "xyz789"
+      }
+    ]
+  },
+  "meta": {
+    "total": 150,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+---
+
+## Get Log by ID
+
+```bash
+curl "https://api.itsfriday.in/v1/logs/log_abc123/" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Response
+
+```json
+{
+  "data": {
+    "id": "log_abc123",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "level": "error",
+    "message": "User login failed",
+    "attributes": {...},
+    "trace_id": "xyz789"
+  }
+}
+```
+
+---
+
+## Aggregate Logs
+
+Get log counts grouped by field.
+
+<CodeGroup>
+```bash cURL
+curl -G "https://api.itsfriday.in/v1/logs/aggregate/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  --data-urlencode "group_by=level" \
+  --data-urlencode "from=2024-01-15T00:00:00Z"
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "data": {
+    "buckets": [
+      {"level": "info", "count": 15000},
+      {"level": "warn", "count": 500},
+      {"level": "error", "count": 45}
+    ]
+  }
+}
+```
+
+---
+
+## Log Levels
+
+| Level | Description | When to Use |
+|-------|-------------|-------------|
+| `debug` | Detailed debugging info | Development only |
+| `info` | Normal operation events | User actions, requests |
+| `warn` | Warning conditions | Recoverable issues |
+| `error` | Error conditions | Failures requiring attention |

@@ -1,0 +1,288 @@
+---
+title: 'Installation'
+description: 'Detailed installation guide for ItsFriday'
+---
+
+# Installation Guide
+
+Choose the installation method that best fits your needs.
+
+## Installation Options
+
+<CardGroup cols={3}>
+  <Card title="Docker" icon="docker">
+    Recommended for most users. Quick setup with containers.
+  </Card>
+  <Card title="Local Development" icon="code">
+    For contributors and development.
+  </Card>
+  <Card title="Production VM" icon="server">
+    Single-server production deployment.
+  </Card>
+</CardGroup>
+
+---
+
+## Option 1: Docker (Recommended)
+
+### Development Setup
+
+For local development with hot-reloading:
+
+```bash
+# Clone repository
+git clone https://github.com/itsfriday-in/itsfriday.git
+cd itsfriday
+
+# Copy environment file
+cp .env.example .env
+
+# Start infrastructure services
+docker-compose up -d
+
+# Services available:
+# - PostgreSQL: localhost:5432
+# - ClickHouse: localhost:9000 (native), localhost:8123 (HTTP)
+# - Redis: localhost:6379
+```
+
+### Production Setup
+
+For production deployments:
+
+```bash
+# Start all services
+docker-compose -f docker-compose.prod.yml up -d --build
+
+# View logs
+docker-compose -f docker-compose.prod.yml logs -f
+```
+
+---
+
+## Option 2: Local Development
+
+For contributing or customizing ItsFriday.
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- Docker (for databases)
+- UV package manager
+
+### Setup Steps
+
+<Steps>
+  <Step title="Clone Repository">
+    ```bash
+    git clone https://github.com/itsfriday-in/itsfriday.git
+    cd itsfriday
+    ```
+  </Step>
+
+  <Step title="Run Setup Script">
+    ```bash
+    ./scripts/setup-dev.sh
+    ```
+
+    This script will:
+    - Check prerequisites
+    - Install UV if needed
+    - Create virtual environment
+    - Install Python dependencies
+    - Install Node.js dependencies
+    - Start Docker services
+    - Run database migrations
+  </Step>
+
+  <Step title="Start Development Servers">
+    ```bash
+    # Terminal 1: Backend
+    source .venv/bin/activate
+    cd src && python manage.py runserver
+
+    # Terminal 2: Frontend
+    cd static && npm run dev
+    ```
+  </Step>
+
+  <Step title="Access Application">
+    - Backend API: http://localhost:8000/api/v1/
+    - Frontend: http://localhost:3000
+    - API Docs: http://localhost:8000/api/v1/docs
+  </Step>
+</Steps>
+
+### Manual Setup (Alternative)
+
+If you prefer manual setup:
+
+```bash
+# 1. Install UV package manager
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. Create virtual environment and install dependencies
+uv venv
+source .venv/bin/activate
+uv sync --extra dev
+
+# 3. Install frontend dependencies
+cd static && npm install && cd ..
+
+# 4. Copy and configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# 5. Start infrastructure
+docker-compose up -d
+
+# 6. Run migrations
+cd src
+python manage.py migrate
+python manage.py clickhouse_migrate
+```
+
+---
+
+## Option 3: Production VM Deployment
+
+Deploy to a single Linux server with automatic SSL.
+
+### Prerequisites
+
+- Ubuntu 20.04+ or Debian 11+
+- Root access
+- Domain name pointed to server IP
+- Ports 80 and 443 open
+
+### Deployment
+
+```bash
+# SSH into your server
+ssh root@your-server-ip
+
+# Download and run deployment script
+curl -fsSL https://raw.githubusercontent.com/itsfriday-in/itsfriday/main/scripts/deploy-vm.sh -o deploy-vm.sh
+chmod +x deploy-vm.sh
+
+# Deploy with your domain
+./deploy-vm.sh your-domain.com admin@email.com
+```
+
+The script will:
+1. Install Docker
+2. Clone the repository
+3. Generate secure secrets
+4. Set up SSL with Let's Encrypt
+5. Start all services
+6. Configure auto-renewal for certificates
+7. Set up systemd service for auto-start
+
+### Post-Deployment
+
+```bash
+# Check status
+systemctl status itsfriday
+
+# View logs
+journalctl -u itsfriday -f
+
+# Restart application
+systemctl restart itsfriday
+```
+
+---
+
+## Environment Configuration
+
+After installation, configure your `.env` file:
+
+```bash
+# Required settings
+DJANGO_SECRET_KEY=your-secret-key-here
+DJANGO_ALLOWED_HOSTS=your-domain.com
+
+# Database (auto-configured for Docker)
+POSTGRES_DB=itsfriday
+POSTGRES_USER=itsfriday
+POSTGRES_PASSWORD=secure-password
+
+# Auth0 (required for authentication)
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_CLIENT_SECRET=your-secret
+AUTH0_AUDIENCE=https://api.itsfriday.in
+```
+
+<Warning>
+  Never commit your `.env` file to version control. It contains sensitive credentials.
+</Warning>
+
+## Verify Installation
+
+Run these checks to ensure everything is working:
+
+```bash
+# 1. Check API health
+curl http://localhost/api/v1/health/
+
+# 2. Check all services
+docker-compose ps
+
+# 3. Test database connection
+docker-compose exec backend python src/manage.py check
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Port already in use">
+    ```bash
+    # Find process using port
+    lsof -i :8000
+
+    # Kill process or change port in .env
+    ```
+  </Accordion>
+
+  <Accordion title="Database connection failed">
+    ```bash
+    # Check if containers are running
+    docker-compose ps
+
+    # View database logs
+    docker-compose logs postgres
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied errors">
+    ```bash
+    # Fix script permissions
+    chmod +x scripts/*.sh
+
+    # Fix Docker permissions (Linux)
+    sudo usermod -aG docker $USER
+    # Log out and back in
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/self-hosting/configuration"
+  >
+    Configure all environment variables
+  </Card>
+  <Card
+    title="Send Your First Data"
+    icon="paper-plane"
+    href="/guides/sending-metrics"
+  >
+    Start sending metrics to ItsFriday
+  </Card>
+</CardGroup>

@@ -1,0 +1,125 @@
+---
+title: 'Introduction'
+description: 'Welcome to ItsFriday - Modern API Observability Platform'
+---
+
+# Welcome to ItsFriday
+
+ItsFriday is a modern, open-source observability platform designed to help you monitor, debug, and optimize your APIs. Built with scalability and developer experience in mind.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/getting-started/quickstart"
+  >
+    Get up and running in under 5 minutes
+  </Card>
+  <Card
+    title="Self-Hosting"
+    icon="server"
+    href="/self-hosting/docker-compose"
+  >
+    Deploy on your own infrastructure
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference/introduction"
+  >
+    Explore our REST API
+  </Card>
+  <Card
+    title="Guides"
+    icon="book"
+    href="/guides/sending-metrics"
+  >
+    Learn best practices
+  </Card>
+</CardGroup>
+
+## What is ItsFriday?
+
+ItsFriday provides comprehensive API observability through three pillars:
+
+<AccordionGroup>
+  <Accordion title="Metrics" icon="chart-line">
+    Collect and visualize time-series metrics from your APIs. Track response times, error rates, throughput, and custom business metrics.
+  </Accordion>
+
+  <Accordion title="Logs" icon="file-lines">
+    Aggregate and search through structured logs from all your services. Find issues quickly with powerful full-text search.
+  </Accordion>
+
+  <Accordion title="Traces" icon="diagram-project">
+    Understand request flows across distributed systems with distributed tracing. Identify bottlenecks and debug issues faster.
+  </Accordion>
+</AccordionGroup>
+
+## Key Features
+
+- **Multi-tenant Architecture** - Secure data isolation for teams and organizations
+- **Real-time Dashboards** - Live metrics visualization with customizable charts
+- **Smart Alerting** - Get notified when metrics cross thresholds
+- **High Performance** - Built on ClickHouse for blazing fast queries
+- **Self-Hosted Option** - Run on your own infrastructure with full control
+- **Open Source** - MIT licensed, community-driven development
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Your Applications                       │
+│              (Send telemetry data via SDK/API)               │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     ItsFriday Platform                       │
+├──────────────┬──────────────┬──────────────┬────────────────┤
+│   Metrics    │     Logs     │    Traces    │   Dashboards   │
+│   Ingestion  │   Ingestion  │   Ingestion  │   & Alerts     │
+└──────────────┴──────────────┴──────────────┴────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    ClickHouse Storage                        │
+│              (High-performance analytics DB)                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Getting Started
+
+<Steps>
+  <Step title="Sign Up or Self-Host">
+    Create an account at [app.itsfriday.in](https://app.itsfriday.in) or [deploy on your own infrastructure](/self-hosting/docker-compose).
+  </Step>
+  <Step title="Get Your API Key">
+    Generate an API key from your dashboard to authenticate requests.
+  </Step>
+  <Step title="Instrument Your App">
+    Use our SDKs or send data directly via the REST API.
+  </Step>
+  <Step title="Explore Your Data">
+    View metrics, search logs, and trace requests in the dashboard.
+  </Step>
+</Steps>
+
+## Need Help?
+
+<CardGroup cols={2}>
+  <Card
+    title="Discord Community"
+    icon="discord"
+    href="https://discord.gg/itsfriday"
+  >
+    Join our community for support and discussions
+  </Card>
+  <Card
+    title="GitHub Issues"
+    icon="github"
+    href="https://github.com/itsfriday-in/itsfriday/issues"
+  >
+    Report bugs or request features
+  </Card>
+</CardGroup>

@@ -1,0 +1,281 @@
+---
+title: 'Production Deployment'
+description: 'Deploy ItsFriday in production with SSL and security best practices'
+---
+
+# Production Deployment
+
+This guide covers deploying ItsFriday to a production server with SSL, security hardening, and monitoring.
+
+## Automated Deployment
+
+The fastest way to deploy:
+
+```bash
+# SSH into your server
+ssh root@your-server-ip
+
+# Download and run deployment script
+curl -fsSL https://raw.githubusercontent.com/itsfriday-in/itsfriday/main/scripts/deploy-vm.sh -o deploy.sh
+chmod +x deploy.sh
+
+# Deploy
+./deploy.sh your-domain.com admin@email.com
+```
+
+## Manual Deployment
+
+### 1. Prepare Server
+
+```bash
+# Update system
+apt update && apt upgrade -y
+
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+systemctl enable docker
+systemctl start docker
+
+# Install Docker Compose
+apt install docker-compose-plugin -y
+
+# Add your user to docker group (optional)
+usermod -aG docker $USER
+```
+
+### 2. Clone and Configure
+
+```bash
+# Create application directory
+mkdir -p /opt/itsfriday
+cd /opt/itsfriday
+
+# Clone repository
+git clone https://github.com/itsfriday-in/itsfriday.git .
+
+# Create environment file
+cp .env.example .env
+```
+
+### 3. Configure Environment
+
+Edit `.env` with production values:
+
+```bash
+# Security - CHANGE THESE
+DJANGO_SECRET_KEY=your-very-secure-random-key
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=your-domain.com
+
+# Database
+POSTGRES_PASSWORD=secure-database-password
+
+# Auth0 (required)
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_CLIENT_SECRET=your-client-secret
+AUTH0_AUDIENCE=https://api.your-domain.com
+```
+
+### 4. Set Up SSL with Let's Encrypt
+
+```bash
+# Install certbot
+apt install certbot -y
+
+# Get certificate
+certbot certonly --standalone -d your-domain.com --email admin@email.com --agree-tos
+
+# Create directories
+mkdir -p certbot/conf certbot/www
+
+# Copy certificates
+cp -rL /etc/letsencrypt/live/your-domain.com certbot/conf/
+```
+
+### 5. Configure Nginx for SSL
+
+Create `infrastructure/docker/nginx/nginx.conf`:
+
+```nginx
+upstream backend {
+    server backend:8000;
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS server
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+    ssl_prefer_server_ciphers off;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /admin/ {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### 6. Start Application
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### 7. Run Migrations
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend python src/manage.py migrate
+docker compose -f docker-compose.prod.yml exec backend python src/manage.py clickhouse_migrate
+```
+
+### 8. Create Admin User
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend python src/manage.py createsuperuser
+```
+
+## Systemd Service
+
+Create `/etc/systemd/system/itsfriday.service`:
+
+```ini
+[Unit]
+Description=ItsFriday Application
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/itsfriday
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+systemctl daemon-reload
+systemctl enable itsfriday
+systemctl start itsfriday
+```
+
+## Certificate Auto-Renewal
+
+Add cron job for certificate renewal:
+
+```bash
+crontab -e
+
+# Add this line
+0 0 * * * certbot renew --quiet && docker compose -f /opt/itsfriday/docker-compose.prod.yml exec nginx nginx -s reload
+```
+
+## Security Checklist
+
+<Check>Strong `DJANGO_SECRET_KEY` (50+ random characters)</Check>
+<Check>`DJANGO_DEBUG=False`</Check>
+<Check>HTTPS enabled with valid certificate</Check>
+<Check>Database passwords are strong and unique</Check>
+<Check>Firewall configured (only 80, 443, 22 open)</Check>
+<Check>SSH key authentication enabled</Check>
+<Check>Auth0 configured correctly</Check>
+<Check>Regular backups scheduled</Check>
+
+## Monitoring
+
+### Health Checks
+
+```bash
+# Check API health
+curl https://your-domain.com/api/v1/health/
+
+# Check all services
+docker compose -f docker-compose.prod.yml ps
+```
+
+### Logs
+
+```bash
+# View application logs
+journalctl -u itsfriday -f
+
+# View Docker logs
+docker compose -f docker-compose.prod.yml logs -f
+```
+
+## Updates
+
+```bash
+cd /opt/itsfriday
+
+# Pull latest code
+git pull origin main
+
+# Rebuild and restart
+docker compose -f docker-compose.prod.yml up -d --build
+
+# Run migrations
+docker compose -f docker-compose.prod.yml exec backend python src/manage.py migrate
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/self-hosting/configuration"
+  >
+    Full configuration reference
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference/introduction"
+  >
+    Explore the API
+  </Card>
+</CardGroup>

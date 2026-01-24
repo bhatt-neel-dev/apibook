@@ -1,0 +1,251 @@
+---
+title: 'Collecting Logs'
+description: 'Send and search structured logs with ItsFriday'
+---
+
+# Collecting Logs
+
+ItsFriday provides powerful log aggregation and search capabilities for debugging and monitoring your applications.
+
+## Log Structure
+
+Each log entry contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | DateTime | When the log was created |
+| `level` | String | Log level (debug, info, warn, error) |
+| `message` | String | Log message |
+| `attributes` | Map | Additional structured data |
+| `trace_id` | String | Optional trace correlation ID |
+
+## Sending Logs via API
+
+### Single Log Entry
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/logs/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "level": "info",
+    "message": "User login successful",
+    "attributes": {
+      "user_id": "user_123",
+      "ip_address": "192.168.1.1",
+      "user_agent": "Mozilla/5.0..."
+    }
+  }'
+```
+
+### Batch Logs
+
+```bash
+curl -X POST https://api.itsfriday.in/v1/logs/batch/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "logs": [
+      {
+        "level": "info",
+        "message": "Request started",
+        "attributes": {"request_id": "req_123"}
+      },
+      {
+        "level": "info",
+        "message": "Request completed",
+        "attributes": {"request_id": "req_123", "duration_ms": 45}
+      }
+    ]
+  }'
+```
+
+## Python Integration
+
+### Using the SDK
+
+```python
+from itsfriday import Client
+import logging
+
+client = Client(api_key="YOUR_API_KEY")
+
+# Send a log
+client.logs.send(
+    level="info",
+    message="Order processed successfully",
+    attributes={
+        "order_id": "ord_12345",
+        "amount": 99.99,
+        "currency": "USD"
+    }
+)
+```
+
+### Custom Logging Handler
+
+```python
+import logging
+from itsfriday import Client
+
+class ItsFridayHandler(logging.Handler):
+    def __init__(self, api_key: str):
+        super().__init__()
+        self.client = Client(api_key=api_key)
+
+    def emit(self, record: logging.LogRecord):
+        self.client.logs.send(
+            level=record.levelname.lower(),
+            message=self.format(record),
+            attributes={
+                "logger": record.name,
+                "module": record.module,
+                "function": record.funcName,
+                "line": record.lineno,
+            }
+        )
+
+# Usage
+logger = logging.getLogger("myapp")
+logger.addHandler(ItsFridayHandler(api_key="YOUR_API_KEY"))
+logger.setLevel(logging.INFO)
+
+logger.info("Application started")
+logger.error("Something went wrong", extra={"error_code": "E001"})
+```
+
+### Django Integration
+
+```python
+# settings.py
+LOGGING = {
+    'version': 1,
+    'handlers': {
+        'itsfriday': {
+            'class': 'myapp.logging.ItsFridayHandler',
+            'api_key': os.environ.get('ITSFRIDAY_API_KEY'),
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['itsfriday'],
+            'level': 'INFO',
+        },
+    },
+}
+```
+
+## JavaScript/Node.js
+
+```javascript
+import { ItsFriday } from '@itsfriday/sdk';
+import winston from 'winston';
+
+const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+
+// Winston transport
+class ItsFridayTransport extends winston.Transport {
+  log(info, callback) {
+    client.logs.send({
+      level: info.level,
+      message: info.message,
+      attributes: info.metadata || {}
+    });
+    callback();
+  }
+}
+
+const logger = winston.createLogger({
+  transports: [new ItsFridayTransport()]
+});
+
+logger.info('User signed up', { userId: 'user_123' });
+```
+
+## Structured Logging Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use structured attributes">
+    ```python
+    # ✅ Good: Structured data
+    logger.info("Order created", extra={
+        "order_id": "ord_123",
+        "amount": 99.99,
+        "items_count": 3
+    })
+
+    # ❌ Avoid: Embedded in message
+    logger.info(f"Order ord_123 created for $99.99 with 3 items")
+    ```
+  </Accordion>
+
+  <Accordion title="Include correlation IDs">
+    ```python
+    # Add trace_id for request correlation
+    client.logs.send(
+        level="info",
+        message="Processing payment",
+        trace_id=request.trace_id,
+        attributes={"payment_id": "pay_123"}
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Use appropriate log levels">
+    ```python
+    logger.debug("Detailed debugging info")    # Development only
+    logger.info("Normal operation events")      # User actions, requests
+    logger.warning("Something unexpected")      # Recoverable issues
+    logger.error("Operation failed")            # Errors requiring attention
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Searching Logs
+
+Query logs using the search API:
+
+```bash
+# Search by message
+curl "https://api.itsfriday.in/v1/logs/search/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -G \
+  --data-urlencode "query=error" \
+  --data-urlencode "level=error" \
+  --data-urlencode "from=2024-01-01T00:00:00Z"
+
+# Search by attribute
+curl "https://api.itsfriday.in/v1/logs/search/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -G \
+  --data-urlencode "attributes.user_id=user_123"
+```
+
+## Log Retention
+
+Logs are retained based on your plan:
+
+| Plan | Retention |
+|------|-----------|
+| Free | 7 days |
+| Pro | 30 days |
+| Enterprise | Custom |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Distributed Tracing"
+    icon="diagram-project"
+    href="/guides/distributed-tracing"
+  >
+    Correlate logs with traces
+  </Card>
+  <Card
+    title="Creating Dashboards"
+    icon="chart-pie"
+    href="/guides/creating-dashboards"
+  >
+    Visualize log data
+  </Card>
+</CardGroup>
