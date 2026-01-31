@@ -64,9 +64,9 @@ coverage.xml
 # =============================================================================
 # Environment Files
 # =============================================================================
-.env
-.env.*
-!.env.example
+backend/.env
+backend/.env.example
+!backend/.env.example
 
 # =============================================================================
 # Build Artifacts (will be created in container)
