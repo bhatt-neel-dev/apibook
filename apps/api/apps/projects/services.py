@@ -2379,6 +2379,156 @@ class AnalyticsService:
             else:
                 cleaned[key] = value
         return cleaned
+
+    @staticmethod
+    def get_project_uptime(
+        project_id: str,
+        heartbeat_grace_minutes: int = 2,
+        down_after_minutes: int = 15,
+        lookback_days: int = 30,
+    ) -> dict:
+        """
+        Summarize app/environment freshness from the latest ingested request.
+
+        This provides an Apitally-style uptime signal without introducing a
+        scheduler: if an app/environment stops sending traffic, its latest
+        ClickHouse timestamp ages into stale/down status.
+        """
+        now = datetime.now(tz.utc)
+        heartbeat_grace_minutes = max(1, min(int(heartbeat_grace_minutes or 2), 60))
+        down_after_minutes = max(
+            heartbeat_grace_minutes,
+            min(int(down_after_minutes or 15), 24 * 60),
+        )
+        lookback_days = max(1, min(int(lookback_days or 30), 30))
+
+        apps = list(
+            App.objects.filter(project_id=project_id, is_active=True)
+            .order_by("name", "created_at")
+            .values("id", "name", "slug", "framework")
+        )
+
+        latest_by_app: dict[str, list[dict]] = {str(app["id"]): [] for app in apps}
+        try:
+            from core.database.clickhouse.client import get_clickhouse_client
+
+            client = get_clickhouse_client()
+            rows = client.execute(
+                """
+                SELECT
+                    app_id,
+                    environment,
+                    max(timestamp) AS last_seen_at,
+                    countIf(timestamp >= %(recent_since)s) AS requests_24h
+                FROM api_requests
+                WHERE project_id = %(project_id)s
+                  AND timestamp >= %(lookback_since)s
+                  AND timestamp <= %(now)s
+                GROUP BY app_id, environment
+                ORDER BY last_seen_at DESC
+                """,
+                {
+                    "project_id": project_id,
+                    "lookback_since": now - timedelta(days=lookback_days),
+                    "recent_since": now - timedelta(hours=24),
+                    "now": now,
+                },
+            )
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project uptime; returning app-only status: %s", exc)
+            rows = []
+
+        for row in rows:
+            app_id = str(row.get("app_id") or "")
+            if app_id in latest_by_app:
+                last_seen_at = _as_utc(row.get("last_seen_at"))
+                latest_by_app[app_id].append(
+                    {
+                        "environment": row.get("environment") or "unknown",
+                        "last_seen_at": last_seen_at,
+                        "requests_24h": int(row.get("requests_24h") or 0),
+                    }
+                )
+
+        def status_for(last_seen_at: datetime | None) -> tuple[str, int | None]:
+            if last_seen_at is None:
+                return "no_data", None
+            age_seconds = max(0, int((now - last_seen_at).total_seconds()))
+            if age_seconds <= heartbeat_grace_minutes * 60:
+                return "live", age_seconds
+            if age_seconds <= down_after_minutes * 60:
+                return "stale", age_seconds
+            return "down", age_seconds
+
+        status_rank = {"live": 0, "stale": 1, "down": 2, "no_data": 3}
+        app_statuses = []
+        summary = {"live": 0, "stale": 0, "down": 0, "no_data": 0}
+        newest_seen_at: datetime | None = None
+
+        for app in apps:
+            app_id = str(app["id"])
+            env_rows = []
+            for env in latest_by_app.get(app_id, []):
+                status, age_seconds = status_for(env["last_seen_at"])
+                last_seen_at = env["last_seen_at"]
+                if last_seen_at and (newest_seen_at is None or last_seen_at > newest_seen_at):
+                    newest_seen_at = last_seen_at
+                env_rows.append(
+                    {
+                        "environment": env["environment"],
+                        "status": status,
+                        "age_seconds": age_seconds,
+                        "last_seen_at": last_seen_at,
+                        "requests_24h": env["requests_24h"],
+                    }
+                )
+
+            if env_rows:
+                app_problem = max(
+                    env_rows,
+                    key=lambda row: (status_rank[row["status"]], row["age_seconds"] or 0),
+                )
+                app_status = app_problem["status"]
+                app_last_seen_at = app_problem["last_seen_at"]
+                app_age_seconds = app_problem["age_seconds"]
+                app_requests_24h = sum(row["requests_24h"] for row in env_rows)
+            else:
+                app_status = "no_data"
+                app_last_seen_at = None
+                app_age_seconds = None
+                app_requests_24h = 0
+
+            summary[app_status] += 1
+            app_statuses.append(
+                {
+                    "id": app_id,
+                    "name": app["name"],
+                    "slug": app["slug"],
+                    "framework": app["framework"],
+                    "status": app_status,
+                    "age_seconds": app_age_seconds,
+                    "last_seen_at": app_last_seen_at,
+                    "requests_24h": app_requests_24h,
+                    "environments": env_rows,
+                }
+            )
+
+        return {
+            "generated_at": now,
+            "heartbeat_grace_minutes": heartbeat_grace_minutes,
+            "down_after_minutes": down_after_minutes,
+            "lookback_days": lookback_days,
+            "latest_seen_at": newest_seen_at,
+            "total_apps": len(app_statuses),
+            "summary": {
+                "live": summary["live"],
+                "stale": summary["stale"],
+                "down": summary["down"],
+                "no_data": summary["no_data"],
+            },
+            "apps": app_statuses,
+        }
+
     @staticmethod
     def get_summary(
         app_id: str,
