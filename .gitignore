@@ -200,6 +200,7 @@ sidecar-testing/**/db.sqlite3
 
 # Next.js
 .next/
+.codex-run/
 out/
 
 

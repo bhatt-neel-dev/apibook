@@ -26,6 +26,7 @@ export default function ProjectAppSetupPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    let cancelled = false;
 
     const metaKey = `apilens_setup_meta_${projectSlug}_${appSlug}`;
     const legacyMetaKey = `apilens_setup_meta_${appSlug}`;
@@ -34,13 +35,53 @@ export default function ProjectAppSetupPage() {
     if (rawMeta) {
       try {
         setMeta(JSON.parse(rawMeta));
+        setLoading(false);
+        return;
       } catch {
         // ignore
       }
     }
 
-    setLoading(false);
-  }, [appSlug]);
+    async function loadSetupMeta() {
+      try {
+        const [appRes, keysRes] = await Promise.all([
+          fetch(`/api/projects/${projectSlug}/apps/${appSlug}`),
+          fetch(`/api/projects/${projectSlug}/api-keys`),
+        ]);
+
+        if (!appRes.ok) {
+          if (!cancelled) router.replace(`/projects/${projectSlug}/apps`);
+          return;
+        }
+
+        const app = await appRes.json();
+        const keysData = keysRes.ok ? await keysRes.json().catch(() => ({})) : {};
+        const keys = Array.isArray(keysData)
+          ? keysData
+          : Array.isArray(keysData.keys)
+            ? keysData.keys
+            : [];
+
+        if (!cancelled) {
+          setMeta({
+            appName: app.name || appSlug,
+            framework: app.framework || "fastapi",
+            apiKeyPrefix: keys.length > 0 ? keys[0].prefix : "apilens_****",
+            projectSlug,
+            createdAt: Date.now(),
+          });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadSetupMeta();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appSlug, projectSlug, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,10 +116,7 @@ export default function ProjectAppSetupPage() {
     );
   }
 
-  if (!meta) {
-    router.push(`/projects/${projectSlug}`);
-    return null;
-  }
+  if (!meta) return null;
 
   return (
     <div className="create-app-container">
