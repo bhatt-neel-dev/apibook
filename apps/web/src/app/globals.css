@@ -12312,6 +12312,169 @@ a.settings-btn {
   font-variant-numeric: tabular-nums;
 }
 
+/* Project uptime */
+.uptime-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.uptime-generated {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.uptime-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.uptime-panel {
+  min-width: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.uptime-table-wrap {
+  overflow-x: auto;
+}
+
+.uptime-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.uptime-table th {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.uptime-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-secondary);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.uptime-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.uptime-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.uptime-app-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.uptime-app-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(20, 184, 166, 0.16);
+  color: var(--accent, #14b8a6);
+  font-size: 13px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.uptime-app-name,
+.uptime-app-meta {
+  display: block;
+  min-width: 0;
+}
+
+.uptime-app-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.uptime-app-meta {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.uptime-env-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.uptime-env-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding: 4px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.uptime-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.uptime-dot.status-live { background: #22c55e; }
+.uptime-dot.status-stale { background: #f59e0b; }
+.uptime-dot.status-down { background: #ef4444; }
+.uptime-dot.status-no_data { background: #64748b; }
+
+.uptime-muted,
+.uptime-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.uptime-empty {
+  width: 100%;
+  justify-content: center;
+  padding: 42px 16px;
+  font-size: 13px;
+}
+
+.uptime-empty-error {
+  color: #f87171;
+}
+
+@media (max-width: 860px) {
+  .uptime-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .uptime-generated {
+    display: none;
+  }
+}
+
 /* Status bar */
 .ep-statusbar {
   height: 24px;

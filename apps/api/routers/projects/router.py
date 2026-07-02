@@ -376,6 +376,25 @@ def get_analytics_timeseries(
     )
 
 
+@router.get("/{project_slug}/analytics/uptime", response=dict)
+def get_project_uptime(
+    request: HttpRequest,
+    project_slug: str,
+    heartbeat_grace_minutes: int = 2,
+    down_after_minutes: int = 15,
+    lookback_days: int = 30,
+):
+    """Get app/environment freshness status from latest ingested traffic."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return AnalyticsService.get_project_uptime(
+        project_id=str(project.id),
+        heartbeat_grace_minutes=heartbeat_grace_minutes,
+        down_after_minutes=down_after_minutes,
+        lookback_days=lookback_days,
+    )
+
+
 @router.get("/{project_slug}/analytics/endpoints", response=dict)
 def get_endpoint_stats(
     request: HttpRequest,
