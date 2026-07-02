@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextvars
 import time
+import traceback
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -18,8 +19,49 @@ from ._capture import (
 )
 from ._sanitize import decode_utf8_safe, serialize_headers
 from .client import ApiLensClient
-from .spans import configure_spans, env_spans_enabled, record_span
+from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
 from .trace import begin_request_trace, end_request_trace
+
+
+def _error_message(exc: BaseException | None, status_code: int, method: str, path: str) -> tuple[str, str]:
+    """Build (message, payload) for the auto error log.
+
+    ``payload`` carries the full traceback for exceptions; it is empty for a
+    plain 5xx response that didn't raise.
+    """
+    if exc is not None:
+        message = f"{type(exc).__name__}: {exc}".strip()
+        payload = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        return message, payload
+    return f"HTTP {status_code} on {method} {path}", ""
+
+
+def _maybe_record_error(
+    *,
+    exc: BaseException | None,
+    status_code: int,
+    trace_id: str,
+    span_id: str,
+    method: str,
+    path: str,
+    consumer: dict[str, str] | None,
+) -> None:
+    """Emit one ERROR log when the request raised or returned 5xx."""
+    if exc is None and status_code < 500:
+        return
+    message, payload = _error_message(exc, status_code, method, path)
+    record_error_log(
+        trace_id=trace_id,
+        span_id=span_id,
+        level="ERROR",
+        message=message,
+        method=method,
+        path=path,
+        status_code=status_code,
+        consumer=consumer,
+        payload=payload,
+        logger_name="apilens.exception" if exc is not None else "apilens.http",
+    )
 
 _consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
     "apilens_consumer_ctx",
@@ -342,8 +384,12 @@ class ApiLensASGIMiddleware:
                     response_payload_len += len(part)
             await send(message)
 
+        captured_exc: BaseException | None = None
         try:
             await self.app(scope, wrapped_receive, wrapped_send)
+        except BaseException as exc:
+            captured_exc = exc
+            raise
         finally:
             consumer = dict(_read_consumer())
             scope_state = scope.get("state")
@@ -373,6 +419,7 @@ class ApiLensASGIMiddleware:
                 response_headers=response_headers_json,
             )
             if self.capture_spans:
+                is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
                     kind="server",
@@ -380,8 +427,17 @@ class ApiLensASGIMiddleware:
                     span_id=span_id,
                     parent_span_id=parent_span_id,
                     duration_ms=(time.perf_counter() - started_at) * 1000.0,
-                    status="error" if status_code >= 500 else "ok",
+                    status="error" if is_error else "ok",
                     status_code=status_code,
+                )
+                _maybe_record_error(
+                    exc=captured_exc,
+                    status_code=status_code,
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    method=ctx.method,
+                    path=ctx.path,
+                    consumer=consumer,
                 )
             _consumer_ctx.reset(token)
             end_request_trace(trace_token)
@@ -500,9 +556,10 @@ class ApiLensWSGIMiddleware:
                 )
             return start_response(status, headers, exc_info)
 
-        result = self.app(environ, wrapped_start_response)
-
+        result = None
+        captured_exc: BaseException | None = None
         try:
+            result = self.app(environ, wrapped_start_response)
             for chunk in result:
                 response_size += len(chunk or b"")
                 if self.capture_payloads and self.log_response_body and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
@@ -512,6 +569,9 @@ class ApiLensWSGIMiddleware:
                     response_payload_chunks.append(part)
                     response_payload_len += len(part)
                 yield chunk
+        except BaseException as exc:
+            captured_exc = exc
+            raise
         finally:
             close = getattr(result, "close", None)
             if callable(close):
@@ -528,6 +588,7 @@ class ApiLensWSGIMiddleware:
             _consumer_ctx.reset(consumer_token)
             end_request_trace(trace_token)
             if self.capture_spans:
+                is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
                     kind="server",
@@ -535,8 +596,17 @@ class ApiLensWSGIMiddleware:
                     span_id=span_id,
                     parent_span_id=parent_span_id,
                     duration_ms=(time.perf_counter() - started_at) * 1000.0,
-                    status="error" if status_code >= 500 else "ok",
+                    status="error" if is_error else "ok",
                     status_code=status_code,
+                )
+                _maybe_record_error(
+                    exc=captured_exc,
+                    status_code=status_code,
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    method=ctx.method,
+                    path=ctx.path,
+                    consumer=consumer,
                 )
             response_payload = decode_utf8_safe(b"".join(response_payload_chunks))
             capture_response(
