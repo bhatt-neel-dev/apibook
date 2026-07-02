@@ -108,6 +108,21 @@ async def list_orders(_: None = Depends(consumer_dep)):
     return {"ok": True}
 
 
+# --- Error-capture test routes (exercise automatic exception/5xx trace logs) ---
+@app.get("/v1/boom")
+async def boom(_: None = Depends(consumer_dep)):
+    # Unhandled exception → APILens should auto-record an ERROR trace message
+    # with the traceback and mark the span as error.
+    raise ValueError("simulated failure while charging card")
+
+
+@app.get("/v1/fail")
+async def fail(_: None = Depends(consumer_dep)):
+    from fastapi.responses import JSONResponse
+
+    # Explicit 5xx (no exception) → still recorded as an error trace message.
+    return JSONResponse(status_code=503, content={"error": "service unavailable"})
+
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -13752,6 +13752,54 @@ a.settings-btn {
 }
 .tf-search-row .ep-search { width: 100%; max-width: 360px; }
 
+/* ── Endpoints table: pagination footer ──────────────────────────────── */
+/* (footer sits below the table inside .tf-table-card) */
+.tf-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-color);
+}
+.tf-pagination-info {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.tf-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tf-pagination-page {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 96px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tf-page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 100ms, color 100ms, border-color 100ms;
+}
+.tf-page-btn:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.08));
+  color: var(--text-primary);
+}
+.tf-page-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .tf-th-chevron,
 .tf-th-actions { width: 40px; padding-left: 8px; padding-right: 8px; cursor: default; }
 .tf-th-chevron:hover,
@@ -14376,6 +14424,35 @@ a.settings-btn {
 }
 
 /* Trace tab — span waterfall */
+.ep-trace-hint {
+  margin: 0 0 10px; padding: 0 2px; font-size: 12px; line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ep-trace-hint strong { color: var(--text-primary); font-weight: 600; }
+.ep-trace-note {
+  margin: 10px 2px 0; padding: 9px 12px; font-size: 12px; line-height: 1.55;
+  color: var(--text-secondary); background: var(--bg-hover);
+  border: 1px solid var(--border-color); border-radius: 8px;
+}
+.ep-trace-note code, .ep-trace-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px; padding: 1px 5px; border-radius: 4px;
+  background: var(--bg-subtle, rgba(148, 163, 184, 0.16)); color: var(--text-primary);
+}
+/* Time scale aligned with the span rows below it. */
+.ep-trace-axis {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 0 12px 6px; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+}
+.ep-trace-axis-name { flex: 0 0 44%; min-width: 0; }
+.ep-trace-axis-scale {
+  flex: 1; display: flex; justify-content: space-between;
+  font-variant-numeric: tabular-nums; letter-spacing: 0;
+}
+.ep-trace-axis-scale > span:nth-child(2) { opacity: 0.7; }
+.ep-trace-axis-dur { flex-shrink: 0; text-align: right; }
+.ep-trace-track { cursor: default; }
 .ep-trace-row {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 7px 12px; border-bottom: 1px solid var(--border-color); font-size: 12px;
