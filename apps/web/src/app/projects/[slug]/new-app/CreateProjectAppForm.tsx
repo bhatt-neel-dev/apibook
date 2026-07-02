@@ -131,8 +131,13 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
 
       // Get the project's API key (should always exist since it's auto-created with project)
       const keysRes = await fetch(`/api/projects/${projectSlug}/api-keys`);
-      const keys = await keysRes.json();
-      const apiKeyPrefix = keys && keys.length > 0 ? keys[0].prefix : "apilens_****";
+      const keysData = await keysRes.json().catch(() => ({}));
+      const keys = Array.isArray(keysData)
+        ? keysData
+        : Array.isArray(keysData.keys)
+          ? keysData.keys
+          : [];
+      const apiKeyPrefix = keys.length > 0 ? keys[0].prefix : "apilens_****";
 
       // Store setup metadata for the setup page
       if (typeof window !== "undefined") {

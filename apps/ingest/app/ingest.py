@@ -125,6 +125,23 @@ def ensure_clickhouse_schema(client) -> None:
         if _schema_ready:
             return
         stmts = [
+            """
+            CREATE TABLE IF NOT EXISTS api_logs (
+                timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+                app_id String CODEC(ZSTD(1)),
+                project_id String CODEC(ZSTD(1)),
+                environment LowCardinality(String) CODEC(ZSTD(1)),
+                level LowCardinality(String) CODEC(ZSTD(1)),
+                message String CODEC(ZSTD(3)),
+                logger_name LowCardinality(String) CODEC(ZSTD(1)),
+                payload String CODEC(ZSTD(3)),
+                attributes_json String CODEC(ZSTD(3))
+            ) ENGINE = MergeTree()
+            PARTITION BY toYYYYMM(timestamp)
+            ORDER BY (project_id, app_id, environment, level, timestamp)
+            TTL toDateTime(timestamp) + INTERVAL 30 DAY
+            SETTINGS index_granularity = 8192
+            """,
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS request_payload String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS response_payload String CODEC(ZSTD(3))",
@@ -150,6 +167,10 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_app_id app_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
+            "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_level level TYPE set(10) GRANULARITY 1",
             # Span storage for distributed traces (the waterfall view). The
             # legacy `traces` table (tenant_id model) is intentionally unused.
             """
@@ -176,8 +197,7 @@ def ensure_clickhouse_schema(client) -> None:
             """,
             "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
-            "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
-        ]
+            "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",        ]
         for s in stmts:
             client.execute(s)
         _schema_ready = True
