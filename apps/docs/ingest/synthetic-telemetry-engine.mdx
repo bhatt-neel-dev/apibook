@@ -1,0 +1,141 @@
+---
+title: Synthetic Telemetry Engine
+description: Generate realistic APILens request, log, and trace data for demos, QA, regression, and load exploration.
+---
+
+# Synthetic Telemetry Engine
+
+APILens includes a code-based synthetic telemetry engine for creating realistic request, log, and trace data across multiple industries, user types, and API maturity stages.
+
+The engine is designed for:
+
+- Product demos with rich multi-app data.
+- QA and regression setup without hand-writing rows.
+- Local ClickHouse backfills for dashboards, Traffic, Logs, and Traces.
+- Ingest API testing through the same `/v1/requests`, `/v1/logs`, and `/v1/traces` paths used by SDKs.
+- Rotating datasets that do not look identical every time.
+
+## Research Input
+
+The scenario catalog is based on APILens' current ingest model plus publicly visible competitor positioning:
+
+- Moesif highlights API analytics, logs, monitoring, traces, monetization, quotas, behavioral cohorts, and industries such as AI, healthtech, fintech, logistics, and telco.
+- Treblle highlights runtime API visibility, governance, runtime security, compliance, shadow endpoint detection, consumer fingerprinting, executive dashboards, and enterprise roles.
+- APITally-specific public pages were not reliably available during implementation, so no APITally-only behavior is represented as verified fact.
+
+## Scenarios
+
+Run:
+
+```bash
+python manage.py synthetic_telemetry --list-scenarios
+```
+
+Current scenario keys:
+
+- `api_product_growth`
+- `ecommerce_checkout`
+- `fintech_payments`
+- `healthtech_patient`
+- `logistics_fleet`
+- `ai_platform`
+- `telco_iot`
+- `internal_saas`
+- `enterprise_governance`
+
+Each scenario contains app profiles, endpoint templates, consumer segments, environment weights, region labels, status distributions, latency profiles, and incident windows.
+
+## Safe Data Rules
+
+Generated data uses only synthetic values:
+
+- Domains use `.example`.
+- IPs use documentation-reserved ranges: `192.0.2.0/24`, `198.51.100.0/24`, and `203.0.113.0/24`.
+- Healthtech data uses token-like identifiers such as `pt_123456`; it does not generate names, emails, or real patient data.
+- Request payloads, response payloads, headers, logs, and spans are synthetic.
+
+## Output Modes
+
+### JSONL Mode
+
+JSONL mode is the safest default. It writes `requests.jsonl`, `logs.jsonl`, `spans.jsonl`, and `manifest.json`.
+
+```bash
+python manage.py synthetic_telemetry \
+  --scenario ecommerce_checkout \
+  --count 1000 \
+  --days 7 \
+  --mode jsonl \
+  --output-dir synthetic-output/checkout
+```
+
+### HTTP Ingest Mode
+
+HTTP mode posts to the standalone ingest service and exercises API key auth, app resolution, endpoint discovery, and ClickHouse writes.
+
+```bash
+python manage.py synthetic_telemetry \
+  --ensure-demo-project \
+  --owner-email qa@example.com \
+  --project-slug synthetic-apilens-demo \
+  --scenario api_product_growth,ai_platform \
+  --count 5000 \
+  --mode http \
+  --ingest-url http://127.0.0.1:8001 \
+  --api-key "$APILENS_PROJECT_API_KEY"
+```
+
+### Direct ClickHouse Mode
+
+Direct mode is intended for local/demo environments where the Django app can reach Postgres and ClickHouse.
+
+```bash
+python manage.py synthetic_telemetry \
+  --ensure-demo-project \
+  --owner-email qa@example.com \
+  --project-slug synthetic-apilens-demo \
+  --scenario all \
+  --count 25000 \
+  --days 30 \
+  --mode direct
+```
+
+Direct mode creates or updates endpoint rows in Postgres and writes request, log, and span rows to ClickHouse using the current APILens column layout.
+
+## Rotating and Repeatable Data
+
+If `--seed` is omitted, the engine derives a rotating seed from the current UTC hour, scenario list, count, days, project slug, and app slugs. This keeps repeated demo runs from producing identical data.
+
+For repeatable QA fixtures, pass a fixed seed:
+
+```bash
+python manage.py synthetic_telemetry --scenario fintech_payments --count 500 --seed 4242
+```
+
+## GPU Acceleration
+
+The generator supports:
+
+- `--accelerator auto`
+- `--accelerator cpu`
+- `--accelerator gpu`
+
+`auto` tries CUDA-backed CuPy first, then Torch CUDA, then CPU. GPU acceleration is used for high-volume numeric random streams: timestamps, weighted choices, statuses, latency rolls, log sampling, and span fan-out. Text and JSON payload materialization still runs on CPU.
+
+If `--accelerator gpu` is requested and no supported CUDA backend is installed, the command fails clearly instead of silently falling back.
+
+## Dry Run
+
+Use dry run to verify counts, selected scenarios, accelerator backend, and seed without writing:
+
+```bash
+python manage.py synthetic_telemetry --scenario all --count 10000 --dry-run
+```
+
+## Operational Notes
+
+- Keep `--batch-size` at or below 1000 for ingest compatibility.
+- Prefer JSONL mode when reviewing generated payloads.
+- Prefer HTTP mode when validating API key auth and standalone ingest.
+- Prefer direct mode when you need local dashboards populated quickly.
+- Use `--no-logs` or `--no-spans` when testing request-only screens.
