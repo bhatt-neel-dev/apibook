@@ -16,9 +16,12 @@ from apps.auth.services import ApiKeyService
 from apps.projects.models import App
 from apps.projects.services import ProjectService, AppService, AnalyticsService, DataQueryService
 from apps.projects.membership import MembershipService
+from apps.projects.synthetic.runner import MAX_UI_INGEST_COUNT, scenario_options, run_project_direct_ingest
+from apps.projects.synthetic.validation import validate_count_and_days, validate_selected_scenarios
 from apps.users.models import User
 from apps.users.services import UserService
 from apps.auth.authentication import jwt_auth
+from core.exceptions.base import ValidationError
 
 from .schemas import (
     CreateProjectRequest,
@@ -36,6 +39,7 @@ from .schemas import (
     LogsQueryResponse,
     RequestsQueryResponse,
     TraceQueryResponse,
+    SpansQueryResponse,
     AnalyticsTimeseriesPointResponse,
     MembersListResponse,
     InvitationResponse,
@@ -44,6 +48,9 @@ from .schemas import (
     AcceptInvitationRequest,
     PendingInvitationResponse,
     AcceptResultResponse,
+    SyntheticScenarioResponse,
+    SyntheticIngestRequest,
+    SyntheticIngestResponse,
 )
 
 router = Router(auth=[jwt_auth])
@@ -150,6 +157,52 @@ def delete_app(request: HttpRequest, project_slug: str, app_slug: str):
     project = ProjectService.get_project_by_slug(user, project_slug, action="write")
     AppService.delete_app(project, app_slug)
     return MessageResponse(message="App deleted successfully")
+
+
+# ── Synthetic telemetry ─────────────────────────────────────────────────────
+
+
+@router.get("/{project_slug}/synthetic/scenarios", response=list[SyntheticScenarioResponse])
+def list_synthetic_scenarios(request: HttpRequest, project_slug: str):
+    """List local synthetic telemetry scenario packs."""
+    user: User = request.auth
+    ProjectService.get_project_by_slug(user, project_slug, action="read")
+    return [SyntheticScenarioResponse(**item) for item in scenario_options()]
+
+
+@router.post("/{project_slug}/synthetic/ingest", response=SyntheticIngestResponse)
+def ingest_synthetic_telemetry(request: HttpRequest, project_slug: str, data: SyntheticIngestRequest):
+    """Generate and direct-write local synthetic telemetry for a project."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    if data.accelerator not in {"auto", "cpu", "gpu"}:
+        raise ValidationError("accelerator must be one of: auto, cpu, gpu")
+    try:
+        scenario_keys = validate_selected_scenarios(data.scenario_keys)
+        count, days = validate_count_and_days(
+            count=data.count,
+            days=data.days,
+            max_count=MAX_UI_INGEST_COUNT,
+            max_days=365,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    try:
+        result = run_project_direct_ingest(
+            project=project,
+            scenario_keys=scenario_keys,
+            count=count,
+            days=days,
+            seed=data.seed,
+            accelerator=data.accelerator,
+            include_logs=data.include_logs,
+            include_spans=data.include_spans,
+            ensure_apps=data.ensure_apps,
+            app_slugs=data.app_slugs,
+        ).as_dict()
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return SyntheticIngestResponse(**result)
 
 
 # ── Project-scoped API Keys ──────────────────────────────────────────
@@ -794,6 +847,7 @@ def query_project_logs(
     search: str = None,
     loggers: str = None,
     trace_id: str = None,
+    span_id: str = None,
     page: int = 1,
     page_size: int = 50,
 ):
@@ -807,6 +861,7 @@ def query_project_logs(
     - search: Search in message, logger_name, or attributes
     - loggers: Comma-separated logger names
     - trace_id: Only logs correlated with this W3C trace id
+    - span_id: Only logs correlated with this span id
     - since/until: ISO8601 timestamps for time range
     - page/page_size: Pagination controls
     """
@@ -838,6 +893,7 @@ def query_project_logs(
         search=search,
         logger_filters=logger_list,
         trace_id=trace_id,
+        span_id=span_id,
         page=page,
         page_size=page_size,
     )
@@ -931,3 +987,49 @@ def query_project_requests(
     )
 
     return RequestsQueryResponse(**result)
+
+
+@router.get("/{project_slug}/data/spans", response=SpansQueryResponse)
+def query_project_spans(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    trace_id: str = None,
+    page: int = 1,
+    page_size: int = 100,
+):
+    """
+    Query raw trace span data across all apps in a project.
+
+    Filters:
+    - trace_id: Exact trace identifier to inspect a single trace
+    - app_slugs: Comma-separated app slugs
+    - environment: Filter by environment name
+    - since/until: ISO8601 timestamps for time range
+    - page/page_size: Pagination controls
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids = None
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        if slugs:
+            apps = AppService.get_apps_by_slugs(project, slugs)
+            app_ids = [str(app.id) for app in apps]
+
+    result = DataQueryService.get_project_spans(
+        project_id=str(project.id),
+        app_ids=app_ids,
+        environment=environment,
+        since=since,
+        until=until,
+        trace_id=trace_id,
+        page=page,
+        page_size=page_size,
+    )
+
+    return SpansQueryResponse(**result)

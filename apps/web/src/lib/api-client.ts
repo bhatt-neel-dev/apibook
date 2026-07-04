@@ -134,6 +134,45 @@ export interface ProjectListItem {
   created_at: string;
 }
 
+export interface SyntheticScenario {
+  key: string;
+  name: string;
+  industry: string;
+  description: string;
+  product_signal: string;
+  apps: number;
+  endpoints: number;
+  consumers: number;
+}
+
+export interface SyntheticIngestPayload {
+  scenario_keys: string[];
+  count: number;
+  days: number;
+  seed?: number | null;
+  accelerator: "auto" | "cpu" | "gpu";
+  include_logs: boolean;
+  include_spans: boolean;
+  ensure_apps: boolean;
+  app_slugs?: string[];
+}
+
+export interface SyntheticIngestResult {
+  requests: number;
+  logs: number;
+  spans: number;
+  written_requests: number;
+  written_logs: number;
+  written_spans: number;
+  scenarios: string[];
+  apps: string[];
+  seed: number;
+  accelerator_backend: string;
+  used_gpu: boolean;
+  generated_at: string;
+  mode: string;
+}
+
 export interface AppInfo {
   id: string;
   name: string;
@@ -535,6 +574,20 @@ export const apiClient = {
   async deleteProject(slug: string): Promise<ApiResponse<{ message: string }>> {
     return fetchDjango<{ message: string }>(`/projects/${slug}`, {
       method: "DELETE",
+    });
+  },
+
+  async getSyntheticScenarios(projectSlug: string): Promise<ApiResponse<SyntheticScenario[]>> {
+    return fetchDjango<SyntheticScenario[]>(`/projects/${projectSlug}/synthetic/scenarios`);
+  },
+
+  async ingestSyntheticTelemetry(
+    projectSlug: string,
+    data: SyntheticIngestPayload,
+  ): Promise<ApiResponse<SyntheticIngestResult>> {
+    return fetchDjango<SyntheticIngestResult>(`/projects/${projectSlug}/synthetic/ingest`, {
+      method: "POST",
+      body: JSON.stringify(data),
     });
   },
 

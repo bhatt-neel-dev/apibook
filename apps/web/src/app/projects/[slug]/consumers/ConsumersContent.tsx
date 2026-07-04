@@ -131,8 +131,7 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
     p.set("filter", serializeFilter(preds));
     // Carry the range when it maps to a Request-logs preset window.
     if (rangeValue.type === "preset") {
-      const hours = ROLLING_PRESETS.find((r) => r.id === rangeValue.id)?.hours;
-      if (hours && hours !== 24 && [1, 6, 168, 720].includes(hours)) p.set("range", String(hours));
+      if (rangeValue.id !== "24h") p.set("range", rangeValue.id);
     }
     router.push(`/projects/${projectSlug}/endpoints?${p.toString()}`);
   };

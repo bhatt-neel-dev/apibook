@@ -9,6 +9,7 @@ import {
   ScrollText,
   TrendingUp,
   Activity,
+  DatabaseZap,
   Users,
   Settings,
   Bell,
@@ -84,6 +85,7 @@ export default function Sidebar() {
       { name: "Traffic", href: `/projects/${projectSlug}/traffic`, icon: Activity },
       { name: "Request logs", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
       { name: "Consumers", href: `/projects/${projectSlug}/consumers`, icon: Users },
+      { name: "Synthetic Data", href: `/projects/${projectSlug}/synthetic`, icon: DatabaseZap },
       { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },
     ]
     : [

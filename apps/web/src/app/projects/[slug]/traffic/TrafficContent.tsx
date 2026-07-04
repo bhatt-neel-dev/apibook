@@ -729,6 +729,10 @@ function AppFilter({
         : `${selected.length} apps`;
 
   const toggle = (slug: string) => {
+    if (allSelected) {
+      onChange([slug]);
+      return;
+    }
     if (selected.includes(slug)) onChange(selected.filter((s) => s !== slug));
     else onChange([...selected, slug]);
   };

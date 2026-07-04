@@ -40,13 +40,26 @@ export const CALENDAR_PRESETS = [
 export const DEFAULT_PRESET_ID = "24h";
 export const DEFAULT_RANGE: RangeValue = { type: "preset", id: DEFAULT_PRESET_ID };
 
+const LEGACY_HOUR_RANGE_IDS: Record<string, string> = Object.fromEntries(
+  ROLLING_PRESETS.map((preset) => [String(preset.hours), preset.id]),
+);
+
+function validCustomRange(since: string, until: string): boolean {
+  const sinceMs = new Date(since).getTime();
+  const untilMs = new Date(until).getTime();
+  return Number.isFinite(sinceMs) && Number.isFinite(untilMs) && sinceMs < untilMs;
+}
+
 // Reconstruct the range from URL params: custom (since+until) wins, else a known
 // preset id, else the default.
 export function parseRange(f?: { range?: string; since?: string; until?: string }): RangeValue {
-  if (f?.since && f?.until) return { type: "custom", since: f.since, until: f.until };
+  if (f?.since && f?.until && validCustomRange(f.since, f.until)) {
+    return { type: "custom", since: f.since, until: f.until };
+  }
   if (f?.range) {
-    const known = [...ROLLING_PRESETS, ...CALENDAR_PRESETS].some((p) => p.id === f.range);
-    if (known) return { type: "preset", id: f.range };
+    const id = LEGACY_HOUR_RANGE_IDS[f.range] ?? f.range;
+    const known = [...ROLLING_PRESETS, ...CALENDAR_PRESETS].some((p) => p.id === id);
+    if (known) return { type: "preset", id };
   }
   return DEFAULT_RANGE;
 }

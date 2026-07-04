@@ -89,6 +89,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [requestError, setRequestError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [openRow, setOpenRow] = useState<RequestItem | null>(null);
@@ -195,14 +196,31 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       p.set("page_size", String(PAGE_SIZE));
       try {
         const res = await fetch(`/api/projects/${projectSlug}/data/requests?${p.toString()}`);
-        const data: RequestsResponse = res.ok
-          ? await res.json()
-          : { items: [], total_count: 0, page: 1, page_size: PAGE_SIZE };
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          const message =
+            typeof errorData?.detail === "string"
+              ? errorData.detail
+              : typeof errorData?.error === "string"
+                ? errorData.error
+                : `Request failed with status ${res.status}`;
+          if (cancelled) return;
+          setItems([]);
+          setTotalCount(0);
+          setRequestError(message);
+          return;
+        }
+        const data: RequestsResponse = await res.json();
         if (cancelled) return;
         setItems(data.items || []);
         setTotalCount(data.total_count || 0);
+        setRequestError("");
       } catch {
-        if (!cancelled) { setItems([]); setTotalCount(0); }
+        if (!cancelled) {
+          setItems([]);
+          setTotalCount(0);
+          setRequestError("Unable to load requests. Check your connection and try again.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -256,6 +274,8 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       <section className="ep-rl-card">
         {loading && items.length === 0 ? (
           <div className="ep-rl-message">Loading requests…</div>
+        ) : requestError ? (
+          <div className="ep-rl-message ep-rl-message-error">{requestError}</div>
         ) : items.length === 0 ? (
           <div className="ep-rl-message">No requests match these filters in this period.</div>
         ) : (

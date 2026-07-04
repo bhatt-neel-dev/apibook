@@ -5,6 +5,7 @@ Schemas for project-scoped API endpoints.
 from datetime import datetime
 from uuid import UUID
 
+from pydantic import Field
 from ninja import Schema
 
 
@@ -166,6 +167,12 @@ class LogItemResponse(Schema):
     level: str
     message: str
     logger_name: str
+    endpoint_method: str = ""
+    endpoint_path: str = ""
+    status_code: int = 0
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
     trace_id: str = ""
     span_id: str = ""
     payload: str
@@ -208,7 +215,7 @@ class SpanItemResponse(Schema):
     environment: str
     trace_id: str
     span_id: str
-    parent_span_id: str
+    parent_span_id: str = ""
     name: str
     kind: str
     service_name: str
@@ -219,6 +226,52 @@ class SpanItemResponse(Schema):
 
 class TraceQueryResponse(Schema):
     spans: list[SpanItemResponse]
+
+
+class SpansQueryResponse(Schema):
+    items: list[SpanItemResponse]
+    total_count: int
+    page: int
+    page_size: int
+
+
+class SyntheticScenarioResponse(Schema):
+    key: str
+    name: str
+    industry: str
+    description: str
+    product_signal: str
+    apps: int
+    endpoints: int
+    consumers: int
+
+
+class SyntheticIngestRequest(Schema):
+    scenario_keys: list[str] = Field(default_factory=lambda: ["api_product_growth"])
+    count: int = 5000
+    days: int = 14
+    seed: int | None = None
+    accelerator: str = "auto"
+    include_logs: bool = True
+    include_spans: bool = True
+    ensure_apps: bool = True
+    app_slugs: list[str] = Field(default_factory=list)
+
+
+class SyntheticIngestResponse(Schema):
+    requests: int
+    logs: int
+    spans: int
+    written_requests: int
+    written_logs: int
+    written_spans: int
+    scenarios: list[str]
+    apps: list[str]
+    seed: int
+    accelerator_backend: str
+    used_gpu: bool
+    generated_at: str
+    mode: str
 
 
 class AnalyticsTimeseriesPointResponse(Schema):

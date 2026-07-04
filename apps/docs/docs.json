@@ -46,7 +46,8 @@
             "group": "Ingest",
             "pages": [
               "ingest/ingest-api",
-              "ingest/request-schema"
+              "ingest/request-schema",
+              "ingest/synthetic-telemetry-engine"
             ]
           },
           {

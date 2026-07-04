@@ -1,0 +1,100 @@
+---
+title: Synthetic Telemetry
+description: Generate local APILens demo and QA traffic from the UI or CLI.
+---
+
+# Synthetic Telemetry
+
+Use synthetic telemetry when a local project needs realistic requests, logs, consumers, endpoints, and traces.
+
+Before direct writes, start the local datastore and apply migrations:
+
+```bash
+pnpm db:up
+python manage.py migrate
+python manage.py clickhouse_migrate
+```
+
+## Fastest Path
+
+1. Open a project.
+2. Go to **Synthetic Data**.
+3. Pick one or more scenarios.
+4. Choose the event count and time window.
+5. Click **Generate data**.
+6. Open **Traffic**, **Request logs**, or **Consumers**.
+
+The UI creates scenario apps when enabled, writes endpoint rows to Postgres, and writes request/log/span rows to ClickHouse.
+
+## Scenario Packs
+
+- `api_product_growth`
+- `ecommerce_checkout`
+- `fintech_payments`
+- `healthtech_patient`
+- `logistics_fleet`
+- `ai_platform`
+- `telco_iot`
+- `internal_saas`
+- `enterprise_governance`
+
+Each scenario includes app profiles, endpoint templates, consumer groups, environments, status-code mixes, latency profiles, and incident windows.
+
+## UI Defaults
+
+| Setting | Default |
+|---|---:|
+| Events | 5,000 |
+| Days | 14 |
+| Accelerator | Auto |
+| Create scenario apps | On |
+| Logs | On |
+| Traces | On |
+
+`Auto` tries CUDA random generation through CuPy or Torch. If neither is available, it uses CPU random generation.
+
+## CLI
+
+List scenarios:
+
+```bash
+python manage.py synthetic_telemetry --list-scenarios
+```
+
+Generate JSONL files:
+
+```bash
+python manage.py synthetic_telemetry \
+  --scenario fintech_payments \
+  --count 1000 \
+  --days 7 \
+  --mode jsonl \
+  --output-dir synthetic-output/fintech
+```
+
+Write directly to the local APILens datastore:
+
+```bash
+python manage.py synthetic_telemetry \
+  --ensure-demo-project \
+  --owner-email qa@example.com \
+  --project-slug synthetic-apilens-demo \
+  --scenario ai_platform \
+  --count 5000 \
+  --days 14 \
+  --mode direct
+```
+
+Use a fixed seed for repeatable fixtures:
+
+```bash
+python manage.py synthetic_telemetry --scenario ai_platform --count 1000 --seed 4242
+```
+
+## Safety
+
+- Domains use `.example`.
+- IPs use documentation ranges: `192.0.2.0/24`, `198.51.100.0/24`, and `203.0.113.0/24`.
+- Healthtech identifiers are synthetic tokens such as `pt_123456`.
+- The UI caps a run at 50,000 request events.
+- HTTP and direct modes write data; JSONL mode only writes files.
