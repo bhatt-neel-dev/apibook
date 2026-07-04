@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Fingerprint, Globe, Link2, Server, Terminal, Timer, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Fingerprint, GitBranch, Globe, Link2, Server, Terminal, Timer, X } from "lucide-react";
 import {
   formatBytes,
   formatDateTime,
@@ -50,21 +50,6 @@ interface PayloadRow {
   span_id?: string;
 }
 
-// A log line correlated with this request via trace_id (from /data/logs).
-interface LogItem {
-  timestamp: string;
-  app_id: string;
-  environment: string;
-  level: string;
-  message: string;
-  logger_name: string;
-  trace_id?: string;
-  span_id?: string;
-  payload: string;
-  attributes: Record<string, string>;
-}
-
-// A span of the distributed trace this request belongs to (from /data/trace).
 interface SpanItem {
   timestamp: string;
   app_id: string;
@@ -81,15 +66,38 @@ interface SpanItem {
   attributes: Record<string, string>;
 }
 
-type TabKey = "details" | "headers" | "response" | "trace" | "related";
+interface LogItem {
+  timestamp: string;
+  app_id: string;
+  environment: string;
+  level: string;
+  message: string;
+  logger_name: string;
+  endpoint_method: string;
+  endpoint_path: string;
+  status_code: number;
+  consumer_id: string;
+  consumer_name: string;
+  consumer_group: string;
+  trace_id?: string;
+  span_id?: string;
+  payload: string;
+  attributes: Record<string, string>;
+}
 
-const TABS: Array<{ key: TabKey; label: string }> = [
+type TraceState = SpanItem[] | "loading" | "error";
+type LogState = LogItem[] | "loading" | "error";
+
+type TabKey = "details" | "headers" | "response" | "related" | "logs" | "trace";
+
+const BASE_TABS: Array<{ key: TabKey; label: string }> = [
   { key: "details", label: "Details" },
   { key: "headers", label: "Headers" },
   { key: "response", label: "Payload" },
-  { key: "trace", label: "Trace" },
   { key: "related", label: "Related" },
 ];
+const LOGS_TAB: { key: TabKey; label: string } = { key: "logs", label: "Logs" };
+const TRACE_TAB: { key: TabKey; label: string } = { key: "trace", label: "Trace" };
 
 function methodColor(m: string): string {
   const k = m.toUpperCase();
@@ -472,118 +480,184 @@ function Waterfall({ spans }: { spans: SpanItem[] }) {
   );
 }
 
-function TraceTab({
+/* ── Modal ───────────────────────────────────────────────────────────── */
+
+function LogsTab({
   projectSlug,
-  traceId,
-  loadingTrace,
+  row,
   appSlugs,
   environment,
   since,
   until,
 }: {
   projectSlug: string;
-  traceId: string;
-  loadingTrace: boolean;
+  row: RequestItem;
   appSlugs: string[];
   environment?: string;
   since: string;
   until?: string;
 }) {
-  const [spans, setSpans] = useState<SpanItem[] | null>(null);
-  const [logs, setLogs] = useState<LogItem[] | null>(null);
+  const [logs, setLogs] = useState<LogState>("loading");
 
   useEffect(() => {
-    if (!traceId) { setSpans(null); setLogs(null); return; }
     let cancelled = false;
-    setSpans(null);
-    setLogs(null);
+    if (!row.trace_id) {
+      setLogs([]);
+      return () => { cancelled = true; };
+    }
+    setLogs("loading");
     (async () => {
+      const p = new URLSearchParams();
+      p.set("trace_id", row.trace_id || "");
+      p.set("since", since);
+      if (until) p.set("until", until);
+      if (environment) p.set("environment", environment);
+      if (appSlugs.length) p.set("app_slugs", appSlugs.join(","));
+      p.set("page_size", "100");
       try {
-        const res = await fetch(`/api/projects/${projectSlug}/data/trace?trace_id=${encodeURIComponent(traceId)}`);
-        const data = res.ok ? await res.json() : { spans: [] };
-        if (!cancelled) setSpans(data.spans || []);
-      } catch { if (!cancelled) setSpans([]); }
-    })();
-    (async () => {
-      try {
-        const p = new URLSearchParams();
-        p.set("trace_id", traceId);
-        p.set("since", since);
-        if (until) p.set("until", until);
-        if (environment) p.set("environment", environment);
-        if (appSlugs.length) p.set("app_slugs", appSlugs.join(","));
-        p.set("page_size", "100");
         const res = await fetch(`/api/projects/${projectSlug}/data/logs?${p.toString()}`);
-        const data = res.ok ? await res.json() : { items: [] };
-        if (cancelled) return;
-        const items: LogItem[] = (data.items || []).slice();
-        // The API returns newest-first; a single request's logs read naturally
-        // in chronological order.
-        items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-        setLogs(items);
-      } catch { if (!cancelled) setLogs([]); }
+        if (!res.ok) {
+          if (!cancelled) setLogs("error");
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setLogs(data.items || []);
+      } catch {
+        if (!cancelled) setLogs("error");
+      }
     })();
     return () => { cancelled = true; };
-  }, [projectSlug, traceId, appSlugs, environment, since, until]);
+  }, [projectSlug, row.trace_id, appSlugs, environment, since, until]);
 
-  if (!traceId) {
-    return loadingTrace ? (
-      <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
-    ) : (
-      <div className="endpoint-detail-empty">
-        No trace id was captured for this request, so its trace can&apos;t be shown.
-        Requests recorded before trace support don&apos;t carry one — upgrade the APILens SDK to enable it.
-      </div>
-    );
+  if (logs === "loading") {
+    return <div className="endpoint-skeleton" style={{ height: 160 }} aria-hidden />;
+  }
+  if (logs === "error") {
+    return <div className="endpoint-detail-empty">Logs could not be loaded.</div>;
+  }
+  if (logs.length === 0) {
+    return <div className="endpoint-detail-empty">No logs captured for this trace.</div>;
   }
 
   return (
-    <>
-      <div className="ep-rl-headblock">
-        <h4 className="ep-rl-subhead">
-          Spans
-          {spans?.length ? <span className="ep-rl-count">{spans.length}</span> : null}
-        </h4>
-        {spans === null ? (
-          <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
-        ) : spans.length === 0 ? (
-          <div className="endpoint-detail-empty">
-            No spans recorded for this trace yet. The middleware records the request span automatically;
-            add <code>with apilens.span(&quot;name&quot;)</code> around interesting work to break the time down further.
+    <div className="ep-rl-headblock">
+      <h4 className="ep-rl-subhead">
+        Trace logs
+        <span className="ep-rl-count">{logs.length}</span>
+      </h4>
+      <div className="ep-log-list">
+        {logs.map((log, index) => (
+          <div key={`${log.timestamp}-${index}`} className={`ep-log-row level-${log.level.toLowerCase()}`}>
+            <div className="ep-log-main">
+              <span className="ep-log-level">{log.level}</span>
+              <span className="ep-log-message">{log.message || "Log event"}</span>
+            </div>
+            <div className="ep-log-meta">
+              <span>{formatDateTime(log.timestamp)}</span>
+              {log.logger_name ? <span>{log.logger_name}</span> : null}
+              {log.endpoint_method || log.endpoint_path ? <span>{`${log.endpoint_method} ${log.endpoint_path}`.trim()}</span> : null}
+              {log.status_code ? <span>{log.status_code}</span> : null}
+            </div>
+            {log.payload ? <pre className="ep-log-payload">{formatPayload(log.payload)}</pre> : null}
           </div>
-        ) : (
-          <Waterfall spans={spans} />
-        )}
+        ))}
       </div>
-      <div className="ep-rl-headblock">
-        <h4 className="ep-rl-subhead">
-          Logs in this trace
-          {logs?.length ? <span className="ep-rl-count">{logs.length}</span> : null}
-        </h4>
-        {logs === null ? (
-          <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
-        ) : logs.length === 0 ? (
-          <div className="endpoint-detail-empty">
-            No logs correlated with this request. Ship application logs with this trace id to see them here.
-          </div>
-        ) : (
-          <div className="ep-rel-list">
-            {logs.map((l, i) => (
-              <div key={`${l.timestamp}-${i}`} className="ep-log-row">
-                <span className="ep-rel-time">{timeShort(l.timestamp)}</span>
-                <span className={`endpoint-status-pill ${levelTone(l.level)}`}>{(l.level || "INFO").toUpperCase()}</span>
-                {l.logger_name ? <span className="ep-log-logger" title={l.logger_name}>{l.logger_name}</span> : null}
-                <span className="ep-log-msg" title={l.message}>{l.message}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </>
+    </div>
   );
 }
 
-/* ── Modal ───────────────────────────────────────────────────────────── */
+function TraceTab({
+  projectSlug,
+  row,
+  appSlugs,
+  environment,
+  since,
+  until,
+}: {
+  projectSlug: string;
+  row: RequestItem;
+  appSlugs: string[];
+  environment?: string;
+  since: string;
+  until?: string;
+}) {
+  const [spans, setSpans] = useState<TraceState>("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!row.trace_id) {
+      setSpans([]);
+      return () => { cancelled = true; };
+    }
+    setSpans("loading");
+    (async () => {
+      const p = new URLSearchParams();
+      p.set("trace_id", row.trace_id || "");
+      p.set("since", since);
+      if (until) p.set("until", until);
+      if (environment) p.set("environment", environment);
+      if (appSlugs.length) p.set("app_slugs", appSlugs.join(","));
+      p.set("page_size", "200");
+      try {
+        const res = await fetch(`/api/projects/${projectSlug}/data/spans?${p.toString()}`);
+        if (!res.ok) {
+          if (!cancelled) setSpans("error");
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setSpans(data.items || []);
+      } catch {
+        if (!cancelled) setSpans("error");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectSlug, row.trace_id, appSlugs, environment, since, until]);
+
+  if (spans === "loading") {
+    return <div className="endpoint-skeleton" style={{ height: 160 }} aria-hidden />;
+  }
+  if (spans === "error") {
+    return <div className="endpoint-detail-empty">Trace spans could not be loaded.</div>;
+  }
+  if (spans.length === 0) {
+    return <div className="endpoint-detail-empty">No spans captured for this trace.</div>;
+  }
+
+  return (
+    <div className="ep-rl-headblock">
+      <h4 className="ep-rl-subhead">
+        Trace spans
+        <span className="ep-rl-count">{spans.length}</span>
+      </h4>
+      <div className="ep-trace-list">
+        {spans.map((span, index) => {
+          const isCurrent = !!row.span_id && span.span_id === row.span_id;
+          return (
+            <div key={`${span.span_id}-${index}`} className={`ep-trace-row${isCurrent ? " is-current" : ""}`}>
+              <div className="ep-trace-main">
+                <span className={`endpoint-status-pill ${statusTone(span.status_code || 200)}`}>
+                  {span.status || span.status_code || "OK"}
+                </span>
+                <span className="ep-trace-name">{span.name || "Unnamed span"}</span>
+                {isCurrent ? <span className="ep-trace-current">request span</span> : null}
+              </div>
+              <div className="ep-trace-meta">
+                <span><Server size={12} /> {span.service_name || "unknown service"}</span>
+                <span><GitBranch size={12} /> {span.kind || "span"}</span>
+                <span>{formatMs(span.duration_ms)}</span>
+                <span>{formatDateTime(span.timestamp)}</span>
+              </div>
+              <div className="ep-trace-ids">
+                <span>span {span.span_id}</span>
+                {span.parent_span_id ? <span>parent {span.parent_span_id}</span> : <span>root span</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   projectSlug: string;
@@ -610,6 +684,13 @@ export default function RequestLogDetailModal({
   const [payload, setPayload] = useState<PayloadRow | null | "loading">("loading");
   // A related request opened on top of this one (stacked modal).
   const [relatedOpen, setRelatedOpen] = useState<RequestItem | null>(null);
+  const tabs = useMemo(() => (row.trace_id ? [...BASE_TABS, LOGS_TAB, TRACE_TAB] : BASE_TABS), [row.trace_id]);
+
+  useEffect(() => {
+    if ((activeTab === "logs" || activeTab === "trace") && !row.trace_id) {
+      setActiveTab("details");
+    }
+  }, [activeTab, row.trace_id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -720,7 +801,7 @@ export default function RequestLogDetailModal({
         </div>
 
         <nav className="ep-emodal-tabs" role="tablist">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.key}
               type="button"
@@ -782,6 +863,7 @@ export default function RequestLogDetailModal({
                     }
                   />
                 ) : null}
+                {row.span_id ? <DetailRow label="Span ID" value={<span className="ep-rl-mono">{row.span_id}</span>} /> : null}
                 {row.user_agent ? <DetailRow label="User agent" value={<span className="ep-rl-ua">{row.user_agent}</span>} /> : null}
               </div>
             </>
@@ -809,18 +891,6 @@ export default function RequestLogDetailModal({
             )
           )}
 
-          {activeTab === "trace" && (
-            <TraceTab
-              projectSlug={projectSlug}
-              traceId={traceId}
-              loadingTrace={loadingPayload}
-              appSlugs={appSlugs}
-              environment={environment}
-              since={since}
-              until={until}
-            />
-          )}
-
           {activeTab === "related" && (
             <RelatedTab
               projectSlug={projectSlug}
@@ -830,6 +900,28 @@ export default function RequestLogDetailModal({
               since={since}
               until={until}
               onOpen={setRelatedOpen}
+            />
+          )}
+
+          {activeTab === "logs" && (
+            <LogsTab
+              projectSlug={projectSlug}
+              row={row}
+              appSlugs={appSlugs}
+              environment={environment}
+              since={since}
+              until={until}
+            />
+          )}
+
+          {activeTab === "trace" && (
+            <TraceTab
+              projectSlug={projectSlug}
+              row={row}
+              appSlugs={appSlugs}
+              environment={environment}
+              since={since}
+              until={until}
             />
           )}
         </div>

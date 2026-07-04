@@ -185,7 +185,10 @@ def _render(pred: Predicate, spec: FieldSpec, key: str, params: dict) -> str:
             lo_key, hi_key = f"{key}_{i}_lo", f"{key}_{i}_hi"
             params[lo_key], params[hi_key] = lo, hi
             ranges.append(f"({col} >= %({lo_key})s AND {col} < %({hi_key})s)")
-        return " OR ".join(ranges)
+        clause = " OR ".join(ranges)
+        if pred.op == "not":
+            return f"NOT ({clause})"
+        return clause
 
     op = pred.op
 

@@ -94,6 +94,8 @@ export interface RequestRow {
   response_payload?: string;
   request_headers?: string;
   response_headers?: string;
+  trace_id?: string;
+  span_id?: string;
 }
 
 export interface HistogramBucket {

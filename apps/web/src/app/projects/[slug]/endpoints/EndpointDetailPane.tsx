@@ -66,6 +66,8 @@ interface RequestRow {
   request_headers?: string;
   response_headers?: string;
   base_url?: string;
+  trace_id?: string;
+  span_id?: string;
 }
 
 type StatTone = "good" | "warn" | "bad";

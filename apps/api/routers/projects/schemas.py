@@ -166,6 +166,12 @@ class LogItemResponse(Schema):
     level: str
     message: str
     logger_name: str
+    endpoint_method: str = ""
+    endpoint_path: str = ""
+    status_code: int = 0
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
     trace_id: str = ""
     span_id: str = ""
     payload: str
@@ -208,7 +214,7 @@ class SpanItemResponse(Schema):
     environment: str
     trace_id: str
     span_id: str
-    parent_span_id: str
+    parent_span_id: str = ""
     name: str
     kind: str
     service_name: str
@@ -219,6 +225,15 @@ class SpanItemResponse(Schema):
 
 class TraceQueryResponse(Schema):
     spans: list[SpanItemResponse]
+
+
+class SpansQueryResponse(Schema):
+    items: list[SpanItemResponse]
+    total_count: int
+    page: int
+    page_size: int
+
+
 
 
 class AnalyticsTimeseriesPointResponse(Schema):

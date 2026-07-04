@@ -23,9 +23,12 @@ export const POST = (
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
+    const appSlug = typeof body.slug === "string" ? body.slug.trim() : "";
+
     // Call the backend API to create app within project
     const result = await apiClient.createProjectApp(slug, {
       name,
+      slug: appSlug,
       description: body.description || "",
       framework: body.framework || "fastapi",
     });

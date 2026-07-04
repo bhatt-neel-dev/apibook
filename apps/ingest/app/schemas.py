@@ -81,10 +81,10 @@ class SpanRecord(BaseModel):
     span_id: str
     parent_span_id: str = ""
     name: str = ""
-    kind: str = "internal"  # server | client | http | db | internal | ...
+    kind: str = "internal"
     service_name: str = ""
     duration_ms: float = 0.0
-    status: str = "ok"  # ok | error
+    status: str = "ok"
     status_code: int = 0
     attributes: dict = Field(default_factory=dict)
 

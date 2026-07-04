@@ -49,6 +49,29 @@ const TIME_RANGES: Array<{ label: string; value: number }> = [
 
 /* ── Page component ──────────────────────────────────────────────────── */
 
+function parseUrlDateParam(value: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getInitialCustomRange(params: { get(name: string): string | null }): { active: boolean; since: string; until: string } {
+  const rawSince = params.get("custom_since");
+  const rawUntil = params.get("custom_until");
+  const since = parseUrlDateParam(rawSince);
+  if (!since) return { active: false, since: "", until: "" };
+
+  const until = rawUntil ? parseUrlDateParam(rawUntil) : null;
+  if (rawUntil && !until) return { active: false, since: "", until: "" };
+  if (until && since >= until) return { active: false, since: "", until: "" };
+
+  return {
+    active: true,
+    since: since.toISOString(),
+    until: until ? until.toISOString() : "",
+  };
+}
+
 export default function EndpointDetailContent({ projectSlug }: { projectSlug: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -74,12 +97,13 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
   const [environments, setEnvironments] = useState<string[]>([]);
 
   // Custom range.
-  const [customActive, setCustomActive] = useState<boolean>(() => !!searchParams.get("custom_since"));
-  const [customSince, setCustomSince] = useState<string>(() => searchParams.get("custom_since") || "");
-  const [customUntil, setCustomUntil] = useState<string>(() => searchParams.get("custom_until") || "");
+  const initialCustomRange = getInitialCustomRange(searchParams);
+  const [customActive, setCustomActive] = useState<boolean>(() => initialCustomRange.active);
+  const [customSince, setCustomSince] = useState<string>(() => initialCustomRange.since);
+  const [customUntil, setCustomUntil] = useState<string>(() => initialCustomRange.until);
   const [customPanelOpen, setCustomPanelOpen] = useState(false);
-  const [customSinceDraft, setCustomSinceDraft] = useState<string>(() => searchParams.get("custom_since") || "");
-  const [customUntilDraft, setCustomUntilDraft] = useState<string>(() => searchParams.get("custom_until") || "");
+  const [customSinceDraft, setCustomSinceDraft] = useState<string>(() => initialCustomRange.since);
+  const [customUntilDraft, setCustomUntilDraft] = useState<string>(() => initialCustomRange.until);
   const [customRangeError, setCustomRangeError] = useState("");
   const customPopoverRef = useRef<HTMLDivElement | null>(null);
 

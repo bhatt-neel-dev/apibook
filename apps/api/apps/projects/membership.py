@@ -11,6 +11,8 @@ import hashlib
 import secrets
 from datetime import timedelta
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 
@@ -92,6 +94,10 @@ class MembershipService:
         email = (email or "").lower().strip()
         if not email:
             raise ValidationError("Email is required")
+        try:
+            validate_email(email)
+        except DjangoValidationError as exc:
+            raise ValidationError("Enter a valid email address") from exc
         if role not in _ASSIGNABLE:
             raise ValidationError("Invalid role")
         if email == project.owner.email.lower():

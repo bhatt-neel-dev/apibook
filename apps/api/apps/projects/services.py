@@ -36,10 +36,20 @@ MAX_APPS_PER_PROJECT = 50
 RESERVED_SLUGS = RESERVED_PROJECT_SLUGS
 
 
+def _parse_time_param(value: str, name: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationError(f"Invalid {name} timestamp. Use ISO 8601 format.") from exc
+    return _as_utc(parsed)
+
+
 def _resolve_time_range(since: str | None, until: str | None) -> tuple[datetime, datetime]:
     now = datetime.now(tz.utc)
-    since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else now - timedelta(hours=24)
-    until_dt = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else now
+    since_dt = _parse_time_param(since, "since") if since else now - timedelta(hours=24)
+    until_dt = _parse_time_param(until, "until") if until else now
+    if since_dt >= until_dt:
+        raise ValidationError("'since' must be before 'until'.")
     return since_dt, until_dt
 
 
@@ -257,8 +267,6 @@ class ProjectService:
                     f"A project named '{name}' is already taken. Please choose a different name."
                 )
             project.name = name
-            # Slug is globally unique across all users.
-            project.slug = _unique_project_slug(name, exclude_id=project.id)
 
         if description is not None:
             project.description = description.strip()
@@ -395,7 +403,6 @@ class AppService:
             if not name:
                 raise ValidationError("App name is required")
             app.name = name
-            app.slug = _unique_slug(project, name, exclude_id=app.id)
 
         if description is not None:
             app.description = description.strip()
@@ -644,28 +651,6 @@ class IngestService:
             IngestService._base_url_column_ready = True
 
     @staticmethod
-    def ensure_consumer_columns(client) -> None:
-        if IngestService._consumer_columns_ready:
-            return
-        with IngestService._consumer_columns_lock:
-            if IngestService._consumer_columns_ready:
-                return
-            try:
-                client.execute(
-                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_id String CODEC(ZSTD(3))"
-                )
-                client.execute(
-                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(3))"
-                )
-                client.execute(
-                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(3))"
-                )
-            except Exception as exc:
-                logger.warning("Unable to ensure consumer columns on api_requests: %s", exc)
-                return
-            IngestService._consumer_columns_ready = True
-
-    @staticmethod
     def ensure_trace_columns(client) -> None:
         if IngestService._trace_columns_ready:
             return
@@ -686,6 +671,28 @@ class IngestService:
                 logger.warning("Unable to ensure trace columns on api_requests: %s", exc)
                 return
             IngestService._trace_columns_ready = True
+
+    @staticmethod
+    def ensure_consumer_columns(client) -> None:
+        if IngestService._consumer_columns_ready:
+            return
+        with IngestService._consumer_columns_lock:
+            if IngestService._consumer_columns_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_id String CODEC(ZSTD(3))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(3))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(3))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure consumer columns on api_requests: %s", exc)
+                return
+            IngestService._consumer_columns_ready = True
 
     @staticmethod
     def _safe_payload(value: str) -> str:
@@ -722,21 +729,9 @@ class IngestService:
                     SETTINGS index_granularity = 8192
                     """
                 )
-                client.execute(
-                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_app_id app_id TYPE bloom_filter(0.01) GRANULARITY 1"
-                )
-                client.execute(
-                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_environment environment TYPE bloom_filter(0.01) GRANULARITY 1"
-                )
-                client.execute(
-                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_level level TYPE set(10) GRANULARITY 1"
-                )
-                client.execute(
-                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))"
-                )
-                # Correlation columns from migration 004; the legacy runtime
-                # CREATE above lacks them, so ensure before selecting them.
                 for stmt in (
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))",
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_method LowCardinality(String) CODEC(ZSTD(1))",
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_path String CODEC(ZSTD(1))",
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS status_code UInt16 CODEC(ZSTD(1))",
@@ -745,6 +740,10 @@ class IngestService:
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(1))",
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_app_id app_id TYPE bloom_filter(0.01) GRANULARITY 1",
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_level level TYPE set(10) GRANULARITY 1",
                     "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
                 ):
                     client.execute(stmt)
@@ -786,17 +785,30 @@ class IngestService:
                     SETTINGS index_granularity = 8192
                     """
                 )
-                client.execute(
-                    "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1"
-                )
-                client.execute(
-                    "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1"
-                )
+                for statement in (
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS app_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS environment LowCardinality(String) CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS parent_span_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS name String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS kind LowCardinality(String) CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS service_name LowCardinality(String) CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS duration_ms Float64 CODEC(Gorilla, ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS status LowCardinality(String) CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS status_code UInt16 CODEC(ZSTD(1))",
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))",
+                    "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+                    "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
+                    "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
+                ):
+                    client.execute(statement)
             except Exception as exc:
                 logger.warning("Unable to ensure api_spans table: %s", exc)
                 return
             IngestService._api_spans_table_ready = True
-
     @staticmethod
     def _safe_log_text(value: str, *, limit: int) -> str:
         if not value:
@@ -1492,6 +1504,8 @@ class LogsService:
         search: str | None = None,
         attribute_filters: list[tuple[str, str]] | None = None,
         logger_filters: list[str] | None = None,
+        trace_id: str | None = None,
+        span_id: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict:
@@ -1548,6 +1562,14 @@ class LogsService:
                 level,
                 message,
                 logger_name,
+                endpoint_method,
+                endpoint_path,
+                status_code,
+                consumer_id,
+                consumer_name,
+                consumer_group,
+                trace_id,
+                span_id,
                 payload,
                 attributes_json
             FROM api_logs
@@ -1924,6 +1946,7 @@ class DataQueryService:
         attribute_filters: list[tuple[str, str]] | None = None,
         logger_filters: list[str] | None = None,
         trace_id: str | None = None,
+        span_id: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict:
@@ -1941,12 +1964,7 @@ class DataQueryService:
             client = get_clickhouse_client()
         except Exception as exc:
             logger.warning("ClickHouse client initialization failed; returning empty logs: %s", exc)
-            return {
-                "items": [],
-                "total_count": 0,
-                "page": safe_page,
-                "page_size": safe_size,
-            }
+            return {"items": [], "total_count": 0, "page": safe_page, "page_size": safe_size}
 
         IngestService.ensure_api_logs_table(client)
 
@@ -1959,7 +1977,6 @@ class DataQueryService:
             "offset": offset,
         }
 
-        # Build app_ids filter
         app_filter = ""
         if app_ids:
             app_placeholders = []
@@ -1978,9 +1995,13 @@ class DataQueryService:
             logger_filters=logger_filters,
         )
 
-        if trace_id:
-            where_filters += " AND trace_id = %(trace_id)s"
+        correlation_filters = ""
+        if trace_id and trace_id.strip():
             params["trace_id"] = trace_id.strip().lower()
+            correlation_filters += " AND trace_id = %(trace_id)s"
+        if span_id and span_id.strip():
+            params["span_id"] = span_id.strip().lower()
+            correlation_filters += " AND span_id = %(span_id)s"
 
         count_query = f"""
             SELECT count() AS total_count
@@ -1989,6 +2010,7 @@ class DataQueryService:
               {app_filter}
               AND timestamp >= %(since)s
               AND timestamp <= %(until)s
+              {correlation_filters}
               {where_filters}
         """
 
@@ -2000,6 +2022,12 @@ class DataQueryService:
                 level,
                 message,
                 logger_name,
+                endpoint_method,
+                endpoint_path,
+                status_code,
+                consumer_id,
+                consumer_name,
+                consumer_group,
                 trace_id,
                 span_id,
                 payload,
@@ -2009,6 +2037,7 @@ class DataQueryService:
               {app_filter}
               AND timestamp >= %(since)s
               AND timestamp <= %(until)s
+              {correlation_filters}
               {where_filters}
             ORDER BY timestamp DESC
             LIMIT %(limit)s
@@ -2030,21 +2059,10 @@ class DataQueryService:
                     parsed = {}
                 item["attributes"] = {str(k): str(v) for k, v in parsed.items()}
                 item.pop("attributes_json", None)
-            return {
-                "items": items,
-                "total_count": total_count,
-                "page": safe_page,
-                "page_size": safe_size,
-            }
+            return {"items": items, "total_count": total_count, "page": safe_page, "page_size": safe_size}
         except Exception as exc:
             logger.warning("ClickHouse query failed for project logs: %s", exc)
-            return {
-                "items": [],
-                "total_count": 0,
-                "page": safe_page,
-                "page_size": safe_size,
-            }
-
+            return {"items": [], "total_count": 0, "page": safe_page, "page_size": safe_size}
     @staticmethod
     def get_project_requests(
         project_id: str,
@@ -2219,6 +2237,135 @@ class DataQueryService:
                 "page_size": safe_size,
             }
 
+    @staticmethod
+    def get_project_spans(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        trace_id: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> dict:
+        """
+        Query trace spans across all apps in a project or specific apps.
+        Returns paginated span records with optional trace filtering.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        safe_page = max(1, int(page))
+        safe_size = max(1, min(int(page_size), 200))
+        offset = (safe_page - 1) * safe_size
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty spans: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
+        IngestService.ensure_api_spans_table(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": safe_size,
+            "offset": offset,
+        }
+
+        filters: list[str] = []
+
+        if app_ids:
+            app_placeholders = []
+            for idx, app_id in enumerate(app_ids):
+                key = f"app_id_{idx}"
+                params[key] = app_id
+                app_placeholders.append(f"%({key})s")
+            filters.append(f"app_id IN ({', '.join(app_placeholders)})")
+
+        if environment:
+            filters.append("environment = %(environment)s")
+            params["environment"] = environment
+
+        if trace_id and trace_id.strip():
+            filters.append("trace_id = %(trace_id)s")
+            params["trace_id"] = trace_id.strip()
+
+        where_clause = ""
+        if filters:
+            where_clause = "AND " + " AND ".join(filters)
+
+        count_query = f"""
+            SELECT count() AS total_count
+            FROM api_spans
+            WHERE project_id = %(project_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_clause}
+        """
+
+        rows_query = f"""
+            SELECT
+                timestamp,
+                app_id,
+                environment,
+                trace_id,
+                span_id,
+                parent_span_id,
+                name,
+                kind,
+                service_name,
+                duration_ms,
+                status,
+                status_code,
+                attributes_json
+            FROM api_spans
+            WHERE project_id = %(project_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_clause}
+            ORDER BY timestamp ASC, span_id ASC
+            LIMIT %(limit)s
+            OFFSET %(offset)s
+        """
+
+        try:
+            count_rows = client.execute(count_query, params)
+            total_count = int(count_rows[0]["total_count"]) if count_rows else 0
+            items = client.execute(rows_query, params)
+            for item in items:
+                item["timestamp"] = _as_utc(item.get("timestamp"))
+                raw_attributes = item.get("attributes_json", "") or "{}"
+                try:
+                    parsed = json.loads(raw_attributes)
+                    if not isinstance(parsed, dict):
+                        parsed = {}
+                except Exception:
+                    parsed = {}
+                item["attributes"] = {str(k): str(v) for k, v in parsed.items()}
+                item.pop("attributes_json", None)
+            return {
+                "items": items,
+                "total_count": total_count,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project spans: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
 
 class AnalyticsService:
     @staticmethod
@@ -2232,6 +2379,156 @@ class AnalyticsService:
             else:
                 cleaned[key] = value
         return cleaned
+
+    @staticmethod
+    def get_project_uptime(
+        project_id: str,
+        heartbeat_grace_minutes: int = 2,
+        down_after_minutes: int = 15,
+        lookback_days: int = 30,
+    ) -> dict:
+        """
+        Summarize app/environment freshness from the latest ingested request.
+
+        This provides an Apitally-style uptime signal without introducing a
+        scheduler: if an app/environment stops sending traffic, its latest
+        ClickHouse timestamp ages into stale/down status.
+        """
+        now = datetime.now(tz.utc)
+        heartbeat_grace_minutes = max(1, min(int(heartbeat_grace_minutes or 2), 60))
+        down_after_minutes = max(
+            heartbeat_grace_minutes,
+            min(int(down_after_minutes or 15), 24 * 60),
+        )
+        lookback_days = max(1, min(int(lookback_days or 30), 30))
+
+        apps = list(
+            App.objects.filter(project_id=project_id, is_active=True)
+            .order_by("name", "created_at")
+            .values("id", "name", "slug", "framework")
+        )
+
+        latest_by_app: dict[str, list[dict]] = {str(app["id"]): [] for app in apps}
+        try:
+            from core.database.clickhouse.client import get_clickhouse_client
+
+            client = get_clickhouse_client()
+            rows = client.execute(
+                """
+                SELECT
+                    app_id,
+                    environment,
+                    max(timestamp) AS last_seen_at,
+                    countIf(timestamp >= %(recent_since)s) AS requests_24h
+                FROM api_requests
+                WHERE project_id = %(project_id)s
+                  AND timestamp >= %(lookback_since)s
+                  AND timestamp <= %(now)s
+                GROUP BY app_id, environment
+                ORDER BY last_seen_at DESC
+                """,
+                {
+                    "project_id": project_id,
+                    "lookback_since": now - timedelta(days=lookback_days),
+                    "recent_since": now - timedelta(hours=24),
+                    "now": now,
+                },
+            )
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project uptime; returning app-only status: %s", exc)
+            rows = []
+
+        for row in rows:
+            app_id = str(row.get("app_id") or "")
+            if app_id in latest_by_app:
+                last_seen_at = _as_utc(row.get("last_seen_at"))
+                latest_by_app[app_id].append(
+                    {
+                        "environment": row.get("environment") or "unknown",
+                        "last_seen_at": last_seen_at,
+                        "requests_24h": int(row.get("requests_24h") or 0),
+                    }
+                )
+
+        def status_for(last_seen_at: datetime | None) -> tuple[str, int | None]:
+            if last_seen_at is None:
+                return "no_data", None
+            age_seconds = max(0, int((now - last_seen_at).total_seconds()))
+            if age_seconds <= heartbeat_grace_minutes * 60:
+                return "live", age_seconds
+            if age_seconds <= down_after_minutes * 60:
+                return "stale", age_seconds
+            return "down", age_seconds
+
+        status_rank = {"live": 0, "stale": 1, "down": 2, "no_data": 3}
+        app_statuses = []
+        summary = {"live": 0, "stale": 0, "down": 0, "no_data": 0}
+        newest_seen_at: datetime | None = None
+
+        for app in apps:
+            app_id = str(app["id"])
+            env_rows = []
+            for env in latest_by_app.get(app_id, []):
+                status, age_seconds = status_for(env["last_seen_at"])
+                last_seen_at = env["last_seen_at"]
+                if last_seen_at and (newest_seen_at is None or last_seen_at > newest_seen_at):
+                    newest_seen_at = last_seen_at
+                env_rows.append(
+                    {
+                        "environment": env["environment"],
+                        "status": status,
+                        "age_seconds": age_seconds,
+                        "last_seen_at": last_seen_at,
+                        "requests_24h": env["requests_24h"],
+                    }
+                )
+
+            if env_rows:
+                app_problem = max(
+                    env_rows,
+                    key=lambda row: (status_rank[row["status"]], row["age_seconds"] or 0),
+                )
+                app_status = app_problem["status"]
+                app_last_seen_at = app_problem["last_seen_at"]
+                app_age_seconds = app_problem["age_seconds"]
+                app_requests_24h = sum(row["requests_24h"] for row in env_rows)
+            else:
+                app_status = "no_data"
+                app_last_seen_at = None
+                app_age_seconds = None
+                app_requests_24h = 0
+
+            summary[app_status] += 1
+            app_statuses.append(
+                {
+                    "id": app_id,
+                    "name": app["name"],
+                    "slug": app["slug"],
+                    "framework": app["framework"],
+                    "status": app_status,
+                    "age_seconds": app_age_seconds,
+                    "last_seen_at": app_last_seen_at,
+                    "requests_24h": app_requests_24h,
+                    "environments": env_rows,
+                }
+            )
+
+        return {
+            "generated_at": now,
+            "heartbeat_grace_minutes": heartbeat_grace_minutes,
+            "down_after_minutes": down_after_minutes,
+            "lookback_days": lookback_days,
+            "latest_seen_at": newest_seen_at,
+            "total_apps": len(app_statuses),
+            "summary": {
+                "live": summary["live"],
+                "stale": summary["stale"],
+                "down": summary["down"],
+                "no_data": summary["no_data"],
+            },
+            "apps": app_statuses,
+        }
+
     @staticmethod
     def get_summary(
         app_id: str,

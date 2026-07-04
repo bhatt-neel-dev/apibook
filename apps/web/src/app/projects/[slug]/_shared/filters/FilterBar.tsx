@@ -418,7 +418,7 @@ export default function FilterBar({ projectSlug, value, onChange, exclude }: Pro
           ref={inputRef}
           className="flt-input"
           value={text}
-          placeholder={predicates.length ? "" : "Filter… (e.g. status:>=500 path:~/v1/orders)"}
+          placeholder={predicates.length ? "" : "Filter… (e.g. status:>=500; path:~/v1/orders)"}
           onChange={(e) => { setText(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}

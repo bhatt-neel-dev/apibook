@@ -1,38 +1,26 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
+import { NextResponse } from "next/server";
+import { fetchWithAuthRefresh } from "@/lib/proxy";
 
-// Auth/identity calls go to the identity service (AUTH_API_URL); default
-// falls back to the core API's /auth path so local dev is unchanged.
 const AUTH_API_URL =
   process.env.AUTH_API_URL ||
   `${process.env.DJANGO_API_URL || "http://localhost:8000/api/v1"}/auth`;
 
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const { id } = await params;
 
-    const response = await fetch(
+    const response = await fetchWithAuthRefresh(
       `${AUTH_API_URL}/passkey/credentials/${id}`,
-      {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-        },
-      }
+      { method: "DELETE" },
     );
 
     if (!response.ok) {
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       return NextResponse.json(
-        { error: data.detail || "Failed to delete passkey" },
+        { error: data.detail || data.error || "Failed to delete passkey" },
         { status: response.status },
       );
     }

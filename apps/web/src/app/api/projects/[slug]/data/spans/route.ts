@@ -3,6 +3,7 @@ import { proxyDjangoWithAuth } from "@/lib/proxy";
 
 export const dynamic = "force-dynamic";
 
+// Project-scoped trace span query. Backs request detail trace inspection.
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ slug: string }> | { slug: string } },
@@ -11,7 +12,7 @@ export async function GET(
   const { slug } = resolved;
   const url = new URL(request.url);
   const qs = url.searchParams.toString();
-  const upstream = `${process.env.DJANGO_API_URL || "http://localhost:8000/api/v1"}/projects/${slug}/analytics/endpoint-requests${qs ? `?${qs}` : ""}`;
+  const upstream = `${process.env.DJANGO_API_URL || "http://localhost:8000/api/v1"}/projects/${slug}/data/spans${qs ? `?${qs}` : ""}`;
 
   return proxyDjangoWithAuth(upstream);
 }
