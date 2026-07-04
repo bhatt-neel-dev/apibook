@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -22,7 +22,7 @@ import FilterBar from "../_shared/filters/FilterBar";
 import { parseFilter } from "../_shared/filters/query";
 import EndpointDetailInspector from "./EndpointDetailInspector";
 
-/* ── Types ───────────────────────────────────────────────────────────── */
+/* â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface Summary {
   total_requests: number;
@@ -40,6 +40,9 @@ interface TSPoint {
   bucket: string;
   total_requests: number;
   error_count: number;
+  success_count?: number;
+  client_error_count?: number;
+  server_error_count?: number;
   error_rate: number;
   total_request_bytes: number;
   total_response_bytes: number;
@@ -94,17 +97,18 @@ const EMPTY_SUMMARY: Summary = {
   unique_endpoints: 0, unique_consumers: 0,
 };
 
-// Chart palette — tuned to sit with the teal Aperture theme instead of the
+// Chart palette â€” tuned to sit with the teal Aperture theme instead of the
 // neon green/red defaults, which read "too sharp" on the dark surfaces.
 const ACCENT = "#14b8a6";
-const GREEN = "#10b981"; // emerald — harmonises with the teal accent
-const RED = "#f87171"; // soft red — matches the "bad" text tone elsewhere
+const GREEN = "#10b981"; // emerald â€” harmonises with the teal accent
+const YELLOW = "#f59e0b";
+const RED = "#f87171"; // soft red â€” matches the "bad" text tone elsewhere
 const GRID = "rgba(148,163,184,0.12)";
 const AXIS = { fontSize: 10, fill: "var(--text-muted)" } as const;
 // Static bar heights (%) for the chart loading skeleton.
 const SKELETON_BARS = [58, 80, 46, 88, 62, 74, 52, 90, 66, 78, 48, 84];
 
-/* ── Helpers ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function fmtNum(n: number): string {
   return Math.round(n || 0).toLocaleString();
@@ -154,14 +158,14 @@ function errToneClass(errRate: number): string {
   return "";
 }
 
-/* ── Component ───────────────────────────────────────────────────────── */
+/* â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   const [apps, setApps] = useState<AppOption[]>([]);
   const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
   const [appsLoaded, setAppsLoaded] = useState(false);
 
-  // Unified rich filter (env, method, status, path, latency, consumer, …).
+  // Unified rich filter (env, method, status, path, latency, consumer, â€¦).
   // App scope stays as the dedicated AppFilter; time as the range picker.
   const [filter, setFilter] = useState(() => seedFilter(initialFilters));
   // Environment for the endpoint inspector's sub-queries, derived from filter.
@@ -275,7 +279,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   const buildQuery = useCallback(
     (extra?: Record<string, string>) => {
       const p = new URLSearchParams();
-      // Omit app_slugs when every app is selected — that's the aggregate view.
+      // Omit app_slugs when every app is selected â€” that's the aggregate view.
       if (selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
         p.set("app_slugs", selectedAppSlugs.join(","));
       } else if (selectedAppSlugs.length && apps.length === 0) {
@@ -294,7 +298,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   // Fetch summary + timeseries + endpoints whenever filters change.
   useEffect(() => {
     if (!appsLoaded) return;
-    // Nothing selected → empty state, skip the network round-trip.
+    // Nothing selected â†’ empty state, skip the network round-trip.
     if (apps.length > 0 && selectedAppSlugs.length === 0) {
       setSummary(EMPTY_SUMMARY);
       setSeries([]);
@@ -340,48 +344,85 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
 
   const cur = summary || EMPTY_SUMMARY;
   const rpm = cur.total_requests / Math.max(1, spanHours * 60);
-
   const chartData = useMemo(() => {
     // Buckets are hourly for short windows, daily beyond 48h (mirrors the
     // backend). RPM = requests ÷ minutes in the bucket, so divide by the right
     // span or the per-minute series is off by 24× on daily buckets.
     const bucketMinutes = spanHours <= 48 ? 60 : 1440;
     return (series || []).map((p) => {
-        const errors = p.error_count || 0;
-        const success = Math.max(0, (p.total_requests || 0) - errors);
-        return {
-          // The raw bucket is the X-axis category — it's unique per point, so
-          // bars stay aligned and the tooltip resolves to the hovered bar.
-          // (Using the human label collapses same-day buckets into one category,
-          // which misaligns bars and shows the wrong bar's numbers on hover.)
-          bucket: p.bucket,
-          label: bucketLabel(p.bucket, spanHours),
-          reqSuccess: success,
-          reqErrors: errors,
-          rpmSuccess: Number((success / bucketMinutes).toFixed(2)),
-          rpmErrors: Number((errors / bucketMinutes).toFixed(2)),
-          rate: Number((p.error_rate || 0).toFixed(2)),
-          bytes: (p.total_request_bytes || 0) + (p.total_response_bytes || 0),
-        };
-      });
+      const total = p.total_requests || 0;
+      const legacyErrors = p.error_count || 0;
+      const clientErrors = p.client_error_count ?? legacyErrors;
+      const serverErrors = p.server_error_count ?? 0;
+      const success = p.success_count ?? Math.max(0, total - clientErrors - serverErrors);
+      return {
+        // The raw bucket is the X-axis category - it's unique per point, so
+        // bars stay aligned and the tooltip resolves to the hovered bar.
+        // (Using the human label collapses same-day buckets into one category,
+        // which misaligns bars and shows the wrong bar's numbers on hover.)
+        bucket: p.bucket,
+        label: bucketLabel(p.bucket, spanHours),
+        reqSuccess: success,
+        reqClientErrors: clientErrors,
+        reqServerErrors: serverErrors,
+        totalErrors: clientErrors + serverErrors,
+        rpm: Number((total / bucketMinutes).toFixed(2)),
+        rate: Number((p.error_rate || 0).toFixed(2)),
+        bytes: (p.total_request_bytes || 0) + (p.total_response_bytes || 0),
+      };
+    });
   }, [series, spanHours]);
+
+
+  // Per-metric config: drives the active tab highlight AND the shared chart.
+  // "stack" metrics render success (green) + errors (red) stacked per bucket;
+  // "area" metrics render a single filled series.
 
   // Per-metric config: drives the active tab highlight AND the shared chart.
   // "stack" metrics render success (green) + errors (red) stacked per bucket;
   // "area" metrics render a single filled series.
   const errTone = cur.error_rate >= 5 ? "bad" : cur.error_rate >= 1 ? "warn" : undefined;
-  const METRICS: Record<
-    MetricKey,
-    | { label: string; value: string; tone?: "warn" | "bad"; kind: "stack"; successKey: string; errorKey: string; fmtY: (v: number) => string; fmtVal: (v: number) => string }
-    | { label: string; value: string; tone?: "warn" | "bad"; kind: "area"; dataKey: string; color: string; fmtY: (v: number) => string; fmtVal: (v: number) => string }
-  > = {
-    requests: { label: "Total requests", value: fmtNum(cur.total_requests), kind: "stack", successKey: "reqSuccess", errorKey: "reqErrors", fmtY: fmtCompact, fmtVal: fmtNum },
-    rpm: { label: "Requests per minute", value: rpm.toFixed(2), kind: "stack", successKey: "rpmSuccess", errorKey: "rpmErrors", fmtY: (v) => `${v}`, fmtVal: (v) => v.toFixed(2) },
-    errors: { label: "Error rate", value: `${cur.error_rate.toFixed(1)} %`, tone: errTone, kind: "area", dataKey: "rate", color: RED, fmtY: (v) => `${v}%`, fmtVal: (v) => `${v}%` },
+  type StackSegment = { dataKey: string; name: string; color: string };
+  type TrafficMetricConfig =
+    | { label: string; value: string; tone?: "warn" | "bad"; kind: "stack"; segments: StackSegment[]; fmtY: (v: number) => string; fmtVal: (v: number) => string }
+    | { label: string; value: string; tone?: "warn" | "bad"; kind: "area"; dataKey: string; color: string; fmtY: (v: number) => string; fmtVal: (v: number) => string };
+  const METRICS: Record<MetricKey, TrafficMetricConfig> = {
+    requests: {
+      label: "Total requests",
+      value: fmtNum(cur.total_requests),
+      kind: "stack",
+      segments: [
+        { dataKey: "reqSuccess", name: "2xx", color: GREEN },
+        { dataKey: "reqClientErrors", name: "4xx", color: YELLOW },
+        { dataKey: "reqServerErrors", name: "5xx", color: RED },
+      ],
+      fmtY: fmtCompact,
+      fmtVal: fmtNum,
+    },
+    rpm: {
+      label: "Requests per minute",
+      value: rpm.toFixed(2),
+      kind: "area",
+      dataKey: "rpm",
+      color: ACCENT,
+      fmtY: (v) => String(v),
+      fmtVal: (v) => v.toFixed(2),
+    },
+    errors: {
+      label: "Total errors",
+      value: fmtNum(cur.error_count),
+      tone: errTone,
+      kind: "stack",
+      segments: [
+        { dataKey: "reqClientErrors", name: "4xx", color: YELLOW },
+        { dataKey: "reqServerErrors", name: "5xx", color: RED },
+      ],
+      fmtY: fmtCompact,
+      fmtVal: fmtNum,
+    },
     data: { label: "Data transferred", value: fmtBytes(dataBytes(cur)), kind: "area", dataKey: "bytes", color: ACCENT, fmtY: fmtBytes, fmtVal: fmtBytes },
   };
   const active = METRICS[activeMetric];
-
   const sortedEndpoints = useMemo(() => {
     const val = (r: EndpointStat): number => {
       if (sortKey === "data") return dataBytes(r);
@@ -432,13 +473,13 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
       aria-sort={sortKey === key ? "descending" : "none"}
     >
       {label}
-      <span className="tf-th-arrow">{sortKey === key ? "↓" : ""}</span>
+      <span className="tf-th-arrow">{sortKey === key ? "â†“" : ""}</span>
     </th>
   );
 
   return (
     <div className="tf">
-      {/* ── Toolbar ── */}
+      {/* â”€â”€ Toolbar â”€â”€ */}
       <div className="tf-toolbar">
         <h1 className="tf-title">Traffic</h1>
         <div className="tf-toolbar-spacer" />
@@ -463,7 +504,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["app"]} />
       </div>
 
-      {/* ── Metrics + chart (metrics are tabs that drive the chart) ── */}
+      {/* â”€â”€ Metrics + chart (metrics are tabs that drive the chart) â”€â”€ */}
       <section className="tf-panel">
         <div className="tf-metrics" role="tablist" aria-label="Traffic metric">
           {(Object.keys(METRICS) as MetricKey[]).map((key) => {
@@ -479,7 +520,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 onClick={() => setActiveMetric(key)}
               >
                 <span className="tf-metric-label">{m.label}</span>
-                <span className="tf-metric-value">{loading ? "—" : m.value}</span>
+                <span className="tf-metric-value">{loading ? "â€”" : m.value}</span>
               </button>
             );
           })}
@@ -488,16 +529,20 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         <div className="tf-panel-chart">
           {!loading && chartData.length > 0 && active.kind === "stack" && (
             <div className="tf-legend">
-              <span className="tf-legend-item"><span className="tf-legend-dot" style={{ background: GREEN }} />Success</span>
-              <span className="tf-legend-item"><span className="tf-legend-dot" style={{ background: RED }} />Errors</span>
+              {active.segments.map((segment) => (
+                <span key={segment.dataKey} className="tf-legend-item">
+                  <span className="tf-legend-dot" style={{ background: segment.color }} />
+                  {segment.name}
+                </span>
+              ))}
             </div>
           )}
           {/* We measure the stage ourselves (stageWidth) and pass concrete
               numeric width/height to the chart instead of using recharts'
-              ResponsiveContainer — that container always initialises its size
+              ResponsiveContainer â€” that container always initialises its size
               to -1 on mount and logs a "width(-1)" warning before its observer
               fires. Driving width from our ResizeObserver keeps it responsive
-              with no warning. key={active.kind} only remounts on bar↔area;
+              with no warning. key={active.kind} only remounts on barâ†”area;
               same-type metric switches animate in place. */}
           <div ref={stageRef} className="tf-chart-stage" style={{ height: 220, width: "100%", minWidth: 0 }}>
             {!loading && chartData.length === 0 ? (
@@ -507,9 +552,19 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="bucket" tickFormatter={(b) => bucketLabel(b, spanHours)} tick={AXIS} minTickGap={24} tickLine={false} axisLine={{ stroke: GRID }} />
                 <YAxis tick={AXIS} width={48} tickFormatter={active.fmtY} tickLine={false} axisLine={false} />
-                <Tooltip content={<TfTooltip kind="stack" fmtVal={active.fmtVal} spanHours={spanHours} />} cursor={{ fill: "rgba(148,163,184,0.08)" }} />
-                <Bar dataKey={active.successKey} name="Success" stackId="t" fill={GREEN} maxBarSize={30} animationDuration={300} />
-                <Bar dataKey={active.errorKey} name="Errors" stackId="t" fill={RED} radius={[2, 2, 0, 0]} maxBarSize={30} animationDuration={300} />
+                <Tooltip content={<TfTooltip kind="stack" segments={active.segments} fmtVal={active.fmtVal} spanHours={spanHours} />} cursor={{ fill: "rgba(148,163,184,0.08)" }} />
+                {active.segments.map((segment, index) => (
+                  <Bar
+                    key={segment.dataKey}
+                    dataKey={segment.dataKey}
+                    name={segment.name}
+                    stackId="t"
+                    fill={segment.color}
+                    radius={index === active.segments.length - 1 ? [2, 2, 0, 0] : undefined}
+                    maxBarSize={30}
+                    animationDuration={300}
+                  />
+                ))}
               </BarChart>
             ) : (
               <AreaChart key="area" width={stageWidth} height={220} data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
@@ -537,7 +592,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         </div>
       </section>
 
-      {/* ── Endpoints table ── */}
+      {/* â”€â”€ Endpoints table â”€â”€ */}
       <section className="tf-table-card">
         <div className="tf-search-row">
           <div className="ep-search">
@@ -546,7 +601,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
               type="text"
               value={endpointSearch}
               onChange={(e) => setEndpointSearch(e.target.value)}
-              placeholder="Search endpoints…"
+              placeholder="Search endpointsâ€¦"
             />
             {endpointSearch && (
               <button
@@ -693,7 +748,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   );
 }
 
-/* ── Sub-components ───────────────────────────────────────────────────── */
+/* â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function AppFilter({
   apps,
@@ -780,23 +835,30 @@ function AppFilter({
   );
 }
 
-function TfTooltip({ active, payload, label, kind, name, fmtVal, spanHours }: any) {
+
+function TfTooltip({ active, payload, label, kind, name, fmtVal, spanHours, segments = [] }: any) {
   if (!active || !payload || !payload.length) return null;
   const f = fmtVal || fmtNum;
-  // `label` is the bucket category (raw ISO) — format it for the header.
+  // label is the bucket category (raw ISO); format it for the header.
   const heading = bucketTipLabel(label, spanHours ?? 24);
 
   if (kind === "stack") {
-    const success = payload.find((p: any) => p.name === "Success")?.value ?? 0;
-    const errors = payload.find((p: any) => p.name === "Errors")?.value ?? 0;
-    const total = success + errors;
-    const rate = total > 0 ? (errors / total) * 100 : 0;
+    const visibleSegments = segments.map((segment: any) => {
+      const point = payload.find((p: any) => p.dataKey === segment.dataKey || p.name === segment.name);
+      return {
+        name: segment.name,
+        color: segment.color,
+        value: Number(point?.value ?? 0),
+      };
+    });
+    const total = visibleSegments.reduce((sum: number, item: any) => sum + item.value, 0);
     return (
       <div className="tf-tip">
         <p className="tf-tip-label">{heading}</p>
         <p style={{ color: "var(--text-primary)" }}>Total: {f(total)}</p>
-        <p style={{ color: GREEN }}>Success: {f(success)}</p>
-        <p style={{ color: RED }}>Errors: {f(errors)} ({rate.toFixed(1)}%)</p>
+        {visibleSegments.map((item: any) => (
+          <p key={item.name} style={{ color: item.color }}>{item.name}: {f(item.value)}</p>
+        ))}
       </div>
     );
   }
@@ -809,3 +871,4 @@ function TfTooltip({ active, payload, label, kind, name, fmtVal, spanHours }: an
     </div>
   );
 }
+
