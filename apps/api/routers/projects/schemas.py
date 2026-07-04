@@ -224,6 +224,9 @@ class TraceQueryResponse(Schema):
 class AnalyticsTimeseriesPointResponse(Schema):
     bucket: datetime
     total_requests: int
+    success_count: int = 0
+    client_error_count: int = 0
+    server_error_count: int = 0
     error_count: int
     error_rate: float
     avg_response_time_ms: float

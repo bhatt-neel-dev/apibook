@@ -2954,6 +2954,9 @@ class AnalyticsService:
             SELECT
                 {bucket_expr} AS bucket,
                 count() AS total_requests,
+                countIf(status_code >= 200 AND status_code < 300) AS success_count,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
