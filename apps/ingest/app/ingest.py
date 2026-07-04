@@ -142,6 +142,28 @@ def ensure_clickhouse_schema(client) -> None:
             TTL toDateTime(timestamp) + INTERVAL 30 DAY
             SETTINGS index_granularity = 8192
             """,
+            """
+            CREATE TABLE IF NOT EXISTS api_spans (
+                timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+                app_id String CODEC(ZSTD(1)),
+                project_id String CODEC(ZSTD(1)),
+                environment LowCardinality(String) CODEC(ZSTD(1)),
+                trace_id String CODEC(ZSTD(1)),
+                span_id String CODEC(ZSTD(1)),
+                parent_span_id String CODEC(ZSTD(1)),
+                name String CODEC(ZSTD(2)),
+                kind LowCardinality(String) CODEC(ZSTD(1)),
+                service_name LowCardinality(String) CODEC(ZSTD(1)),
+                duration_ms Float64 CODEC(ZSTD(1)),
+                status LowCardinality(String) CODEC(ZSTD(1)),
+                status_code UInt16 CODEC(ZSTD(1)),
+                attributes_json String CODEC(ZSTD(3))
+            ) ENGINE = MergeTree()
+            PARTITION BY toYYYYMM(timestamp)
+            ORDER BY (project_id, app_id, trace_id, timestamp)
+            TTL toDateTime(timestamp) + INTERVAL 30 DAY
+            SETTINGS index_granularity = 8192
+            """,
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS request_payload String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS response_payload String CODEC(ZSTD(3))",
@@ -155,9 +177,6 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS span_id String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD INDEX IF NOT EXISTS idx_api_requests_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
-            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))",
-            # Log-correlation columns exist in the 004 migration but not in the
-            # legacy runtime-created api_logs table; ensure them before writing.
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_method LowCardinality(String) CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_path String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS status_code UInt16 CODEC(ZSTD(1))",
@@ -166,43 +185,19 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))",
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_app_id app_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_level level TYPE set(10) GRANULARITY 1",
-            # Span storage for distributed traces (the waterfall view). The
-            # legacy `traces` table (tenant_id model) is intentionally unused.
-            """
-            CREATE TABLE IF NOT EXISTS api_spans (
-                timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
-                app_id String CODEC(ZSTD(1)),
-                project_id String CODEC(ZSTD(1)),
-                environment LowCardinality(String) CODEC(ZSTD(1)),
-                trace_id String CODEC(ZSTD(1)),
-                span_id String CODEC(ZSTD(1)),
-                parent_span_id String CODEC(ZSTD(1)),
-                name String CODEC(ZSTD(1)),
-                kind LowCardinality(String) CODEC(ZSTD(1)),
-                service_name LowCardinality(String) CODEC(ZSTD(1)),
-                duration_ms Float64 CODEC(Gorilla, ZSTD(1)),
-                status LowCardinality(String) CODEC(ZSTD(1)),
-                status_code UInt16 CODEC(ZSTD(1)),
-                attributes_json String CODEC(ZSTD(3))
-            ) ENGINE = MergeTree()
-            PARTITION BY toYYYYMM(timestamp)
-            ORDER BY (app_id, trace_id, timestamp)
-            TTL toDateTime(timestamp) + INTERVAL 30 DAY
-            SETTINGS index_granularity = 8192
-            """,
             "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
-            "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",        ]
+            "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
+        ]
         for s in stmts:
             client.execute(s)
         _schema_ready = True
-
-
 # --- validation + resolution (mirrors router.py) ----------------------------
 
 def validate_project_slug(auth_slug: str, payload_slugs: set[str]) -> None:
@@ -400,7 +395,7 @@ def handle_spans(project_id: str, project_slug: str, records) -> int:
             trace_id = _safe_trace_component(r.trace_id, 32)
             span_id = _safe_trace_component(r.span_id, 16)
             if not trace_id or not span_id:
-                continue  # unusable without valid ids; drop silently (telemetry)
+                continue
             status = (r.status or "ok").strip().lower()
             rows.append((
                 r.timestamp, app_uuid, project_id,

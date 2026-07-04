@@ -36,6 +36,7 @@ from .schemas import (
     LogsQueryResponse,
     RequestsQueryResponse,
     TraceQueryResponse,
+    SpansQueryResponse,
     AnalyticsTimeseriesPointResponse,
     MembersListResponse,
     InvitationResponse,
@@ -794,6 +795,7 @@ def query_project_logs(
     search: str = None,
     loggers: str = None,
     trace_id: str = None,
+    span_id: str = None,
     page: int = 1,
     page_size: int = 50,
 ):
@@ -807,6 +809,7 @@ def query_project_logs(
     - search: Search in message, logger_name, or attributes
     - loggers: Comma-separated logger names
     - trace_id: Only logs correlated with this W3C trace id
+    - span_id: Only logs correlated with this span id
     - since/until: ISO8601 timestamps for time range
     - page/page_size: Pagination controls
     """
@@ -838,6 +841,7 @@ def query_project_logs(
         search=search,
         logger_filters=logger_list,
         trace_id=trace_id,
+        span_id=span_id,
         page=page,
         page_size=page_size,
     )
@@ -931,3 +935,49 @@ def query_project_requests(
     )
 
     return RequestsQueryResponse(**result)
+
+
+@router.get("/{project_slug}/data/spans", response=SpansQueryResponse)
+def query_project_spans(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    trace_id: str = None,
+    page: int = 1,
+    page_size: int = 100,
+):
+    """
+    Query raw trace span data across all apps in a project.
+
+    Filters:
+    - trace_id: Exact trace identifier to inspect a single trace
+    - app_slugs: Comma-separated app slugs
+    - environment: Filter by environment name
+    - since/until: ISO8601 timestamps for time range
+    - page/page_size: Pagination controls
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids = None
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        if slugs:
+            apps = AppService.get_apps_by_slugs(project, slugs)
+            app_ids = [str(app.id) for app in apps]
+
+    result = DataQueryService.get_project_spans(
+        project_id=str(project.id),
+        app_ids=app_ids,
+        environment=environment,
+        since=since,
+        until=until,
+        trace_id=trace_id,
+        page=page,
+        page_size=page_size,
+    )
+
+    return SpansQueryResponse(**result)
