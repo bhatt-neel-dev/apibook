@@ -2,7 +2,7 @@ version: 2
 updates:
   # Backend Python dependencies (uv/pip)
   - package-ecosystem: "pip"
-    directory: "/backend"
+    directory: "/apps/api"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -26,7 +26,7 @@ updates:
 
   # Frontend npm dependencies
   - package-ecosystem: "npm"
-    directory: "/frontend"
+    directory: "/apps/web"
     schedule:
       interval: "weekly"
       day: "monday"
