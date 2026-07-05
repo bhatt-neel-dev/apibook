@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { fetchWithRefresh } from "@/lib/proxy";
 
 // Auth/identity calls go to the identity service (AUTH_API_URL); default
 // falls back to the core API's /auth path so local dev is unchanged.
@@ -18,12 +19,9 @@ export async function POST(request: NextRequest) {
     console.log("Verify request - challenge received:", body.challenge);
     console.log("Verify request - credential ID:", body.credential?.id);
 
-    const response = await fetch(`${AUTH_API_URL}/passkey/register/verify`, {
+    const response = await fetchWithRefresh(`${AUTH_API_URL}/passkey/register/verify`, session, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.accessToken}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         credential: body.credential,
         challenge: body.challenge,

@@ -12,7 +12,7 @@ function getEncryptionKey(): Buffer {
   return createHash("sha256").update(secret).digest();
 }
 
-interface SessionData {
+export interface SessionData {
   accessToken: string;
   refreshToken: string;
   user: {

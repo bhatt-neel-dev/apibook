@@ -355,12 +355,12 @@ async function fetchDjango<T>(
 //   • in-flight map  — concurrent callers share the one /refresh promise;
 //   • recent cache   — callers that 401 just *after* it settled still get the
 //                      already-rotated result instead of refreshing again.
-type RefreshResult = { accessToken: string; refreshToken: string } | null;
+export type RefreshResult = { accessToken: string; refreshToken: string } | null;
 const REFRESH_CACHE_TTL_MS = 15_000;
 const refreshInflight = new Map<string, Promise<RefreshResult>>();
 const refreshRecent = new Map<string, { result: RefreshResult; at: number }>();
 
-async function refreshTokens(refreshToken: string): Promise<RefreshResult> {
+export async function refreshTokens(refreshToken: string): Promise<RefreshResult> {
   const cached = refreshRecent.get(refreshToken);
   if (cached && Date.now() - cached.at < REFRESH_CACHE_TTL_MS) {
     return cached.result;
