@@ -1,14 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { useApp } from "@/components/providers/AppProvider";
 
 interface BreadcrumbsProps {
-  appSlug?: string;
-  projectSlug?: string;
+  projectSlug: string;
 }
 
 const sectionMap: Record<string, string> = {
@@ -21,31 +19,23 @@ const sectionMap: Record<string, string> = {
   apps: "Apps",
 };
 
-export default function Breadcrumbs({ appSlug, projectSlug }: BreadcrumbsProps) {
+export default function Breadcrumbs({ projectSlug }: BreadcrumbsProps) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const { app } = useApp();
 
   const parts = pathname.split("/").filter(Boolean);
   const [projectName, setProjectName] = useState<string>("");
 
-  // For projects: /projects/[slug]/[section]
-  // For apps: /apps/[slug]/[section]
-  // For app settings: /projects/[slug]/apps/[app_slug]/settings/[tab]
-  const isProject = parts[0] === "projects";
-  const section = isProject ? parts[2] : parts[2];
-  const isAppSettings = isProject && section === "apps" && parts[3] && parts[4] === "settings";
+  // /projects/[slug]/[section], or /projects/[slug]/apps/[app_slug]/settings/[tab]
+  const section = parts[2];
+  const isAppSettings = section === "apps" && parts[3] && parts[4] === "settings";
   const appSlugFromPath = isAppSettings ? parts[3] : null;
   const sectionName = section ? (sectionMap[section] || section.charAt(0).toUpperCase() + section.slice(1)) : null;
-  const displayName = isProject ? (projectName || projectSlug) : (app?.name || appSlug);
-  const endpointId = section === "endpoints" && parts[3] && parts[3] !== "details" ? parts[3] : null;
-  const [endpointLabel, setEndpointLabel] = useState<string>("Details");
+  const displayName = projectName || projectSlug;
   const [appNameForSettings, setAppNameForSettings] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
     async function loadProjectName() {
-      if (!projectSlug) return;
       try {
         const res = await fetch(`/api/projects/${projectSlug}`);
         if (!res.ok) return;
@@ -63,37 +53,8 @@ export default function Breadcrumbs({ appSlug, projectSlug }: BreadcrumbsProps) 
 
   useEffect(() => {
     let cancelled = false;
-    async function loadEndpointLabel() {
-      if (!endpointId || !appSlug) {
-        setEndpointLabel("Details");
-        return;
-      }
-      const params = new URLSearchParams();
-      params.set("endpoint_id", endpointId);
-      try {
-        const res = await fetch(`/api/apps/${appSlug}/endpoint-meta?${params.toString()}`);
-        if (!res.ok) {
-          if (!cancelled) setEndpointLabel("Details");
-          return;
-        }
-        const data = (await res.json()) as { method?: string; path?: string };
-        const method = (data.method || "").toUpperCase();
-        const path = data.path || "";
-        if (!cancelled) setEndpointLabel(method && path ? `${method} ${path}` : path || "Details");
-      } catch {
-        if (!cancelled) setEndpointLabel("Details");
-      }
-    }
-    loadEndpointLabel();
-    return () => {
-      cancelled = true;
-    };
-  }, [appSlug, endpointId]);
-
-  useEffect(() => {
-    let cancelled = false;
     async function loadAppName() {
-      if (!isAppSettings || !projectSlug || !appSlugFromPath) return;
+      if (!isAppSettings || !appSlugFromPath) return;
       try {
         const res = await fetch(`/api/projects/${projectSlug}/apps/${appSlugFromPath}`);
         if (!res.ok) return;
@@ -109,46 +70,18 @@ export default function Breadcrumbs({ appSlug, projectSlug }: BreadcrumbsProps) 
     };
   }, [isAppSettings, projectSlug, appSlugFromPath]);
 
-  let crumbs: Array<{ label: string; href?: string }> = [];
+  const crumbs: Array<{ label: string; href?: string }> = [
+    { label: "Projects", href: "/projects" },
+    { label: displayName, href: `/projects/${projectSlug}/apps` },
+  ];
 
-  if (isProject && projectSlug) {
-    crumbs = [
-      { label: "Projects", href: "/projects" },
-      { label: displayName as string, href: `/projects/${projectSlug}/apps` },
-    ];
-
-    if (isAppSettings && appSlugFromPath) {
-      // /projects/[slug]/apps/[app_slug]/settings/[tab]
-      const settingsTab = parts[5]; // general, setup, etc.
-      crumbs.push({ label: "Apps", href: `/projects/${projectSlug}/apps` });
-      crumbs.push({ label: appNameForSettings || appSlugFromPath });
-      crumbs.push({ label: "App Settings" });
-    } else if (sectionName && section) {
-      crumbs.push({ label: sectionName, href: `/projects/${projectSlug}/${section}` });
-    }
-  } else if (appSlug) {
-    crumbs = [
-      { label: "Apps", href: "/apps" },
-      { label: displayName as string, href: `/apps/${appSlug}` },
-    ];
-
-    if (sectionName && section) {
-      crumbs.push({ label: sectionName, href: `/apps/${appSlug}/${section}` });
-    }
-
-    if (section === "consumers" && parts[3]) {
-      crumbs.push({ label: decodeURIComponent(parts[3]) });
-    }
-
-    if (section === "endpoints" && parts[3] === "details") {
-      const method = searchParams.get("method");
-      const path = searchParams.get("path");
-      const detailLabel = method && path ? `${method.toUpperCase()} ${path}` : "Details";
-      crumbs.push({ label: detailLabel });
-    }
-    if (section === "endpoints" && parts[3] && parts[3] !== "details") {
-      crumbs.push({ label: endpointLabel });
-    }
+  if (isAppSettings && appSlugFromPath) {
+    // /projects/[slug]/apps/[app_slug]/settings/[tab]
+    crumbs.push({ label: "Apps", href: `/projects/${projectSlug}/apps` });
+    crumbs.push({ label: appNameForSettings || appSlugFromPath });
+    crumbs.push({ label: "App Settings" });
+  } else if (sectionName && section) {
+    crumbs.push({ label: sectionName, href: `/projects/${projectSlug}/${section}` });
   }
 
   return (

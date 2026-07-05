@@ -7,7 +7,7 @@ export type AppSettingsTab = "general" | "setup";
 
 interface AppSettingsSidebarProps {
   appSlug: string;
-  projectSlug?: string;
+  projectSlug: string;
   activeTab: AppSettingsTab;
 }
 
@@ -17,9 +17,7 @@ const menuItems: { id: AppSettingsTab; label: string; icon: React.ElementType }[
 ];
 
 export default function AppSettingsSidebar({ appSlug, projectSlug, activeTab }: AppSettingsSidebarProps) {
-  const baseUrl = projectSlug
-    ? `/projects/${projectSlug}/apps/${appSlug}/settings`
-    : `/apps/${appSlug}/settings`;
+  const baseUrl = `/projects/${projectSlug}/apps/${appSlug}/settings`;
 
   return (
     <nav className="settings-sidebar">
