@@ -283,9 +283,9 @@ function RequestsOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null
   const data = timeseries.map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
-    success: Math.max(0, p.total_requests - p.error_count),
-    client: p.client_errors,
-    server: p.server_errors,
+    success: p.success_count,
+    client: p.client_error_count,
+    server: p.server_error_count,
   }));
   if (!data.some((d) => d.success || d.client || d.server)) return <EmptyBlock message="No requests in the selected period." />;
   return (
@@ -311,8 +311,8 @@ function ErrorsOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null }
   const data = timeseries.map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
-    client: p.client_errors,
-    server: p.server_errors,
+    client: p.client_error_count,
+    server: p.server_error_count,
   }));
   return (
     <Chart

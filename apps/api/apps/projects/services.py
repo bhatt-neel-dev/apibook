@@ -3464,9 +3464,10 @@ class AnalyticsService:
             SELECT
                 toTimeZone(toStartOfHour(toTimeZone(timestamp, %(timezone)s)), 'UTC') AS bucket,
                 count() AS total_requests,
+                countIf(status_code >= 200 AND status_code < 300) AS success_count,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
                 countIf(status_code >= 400) AS error_count,
-                countIf(status_code >= 400 AND status_code < 500) AS client_errors,
-                countIf(status_code >= 500) AS server_errors,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.50)(response_time_ms) AS p50_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,

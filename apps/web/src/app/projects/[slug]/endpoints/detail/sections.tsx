@@ -56,9 +56,10 @@ export interface EndpointDetail {
 export interface TimeseriesPoint {
   bucket: string;
   total_requests: number;
+  success_count: number;
+  client_error_count: number;
+  server_error_count: number;
   error_count: number;
-  client_errors: number;
-  server_errors: number;
   avg_response_time_ms: number;
   p50_response_time_ms: number;
   p95_response_time_ms: number;
@@ -307,9 +308,9 @@ export function TrafficSection({ timeseries }: { timeseries: TimeseriesPoint[] |
   const chartData = (timeseries || []).map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
-    success: Math.max(0, p.total_requests - p.error_count),
-    client: p.client_errors,
-    server: p.server_errors,
+    success: p.success_count,
+    client: p.client_error_count,
+    server: p.server_error_count,
   }));
   const hasData = chartData.some((d) => d.success > 0 || d.client > 0 || d.server > 0);
   return (
