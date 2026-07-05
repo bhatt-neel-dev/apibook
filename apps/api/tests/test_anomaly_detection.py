@@ -234,6 +234,71 @@ class DetectProjectAnomaliesTests(DjangoTestCase):
         self.assertEqual(client.execute.call_count, 1)
 
 
+class JobHeartbeatTests(DjangoTestCase):
+    """Heartbeat recording + the /health/jobs freshness logic."""
+
+    def test_cycle_records_heartbeat(self):
+        from unittest.mock import MagicMock, patch
+
+        from apps.projects.anomaly import HEARTBEAT_NAME, run_detection_cycle
+        from apps.projects.models import JobHeartbeat
+
+        client = MagicMock()
+        client.execute.return_value = []
+        with patch("core.database.clickhouse.client.get_clickhouse_client", return_value=client):
+            run_detection_cycle()
+
+        hb = JobHeartbeat.objects.get(name=HEARTBEAT_NAME)
+        self.assertIsNotNone(hb.last_run_at)
+
+    def test_job_health_never_ran_is_stale_only_when_enabled(self):
+        import os
+        from unittest.mock import patch
+
+        from apps.projects.anomaly import job_health
+
+        health = job_health()
+        self.assertIsNone(health["last_run_at"])
+        self.assertTrue(health["stale"])  # enabled + never ran = a problem
+
+        with patch.dict(os.environ, {"APILENS_ANOMALY_ALERTS": "false"}):
+            health = job_health()
+            self.assertFalse(health["stale"])  # intentionally off = not a problem
+
+    def test_job_health_staleness_threshold(self):
+        from datetime import datetime, timedelta, timezone as tz
+
+        from apps.projects.anomaly import (
+            HEARTBEAT_NAME,
+            HEARTBEAT_STALE_AFTER_SECONDS,
+            job_health,
+        )
+        from apps.projects.models import JobHeartbeat
+
+        JobHeartbeat.objects.create(
+            name=HEARTBEAT_NAME,
+            last_run_at=datetime.now(tz.utc) - timedelta(seconds=HEARTBEAT_STALE_AFTER_SECONDS - 60),
+        )
+        self.assertFalse(job_health()["stale"])  # just inside the window
+
+        JobHeartbeat.objects.filter(name=HEARTBEAT_NAME).update(
+            last_run_at=datetime.now(tz.utc) - timedelta(seconds=HEARTBEAT_STALE_AFTER_SECONDS + 60)
+        )
+        self.assertTrue(job_health()["stale"])  # just past it
+
+    def test_disabled_cycle_does_not_touch_heartbeat(self):
+        import os
+        from unittest.mock import patch
+
+        from apps.projects.anomaly import run_detection_cycle
+        from apps.projects.models import JobHeartbeat
+
+        with patch.dict(os.environ, {"APILENS_ANOMALY_ALERTS": "0"}):
+            run_detection_cycle()
+
+        self.assertFalse(JobHeartbeat.objects.exists())
+
+
 if __name__ == "__main__":
     import unittest
 

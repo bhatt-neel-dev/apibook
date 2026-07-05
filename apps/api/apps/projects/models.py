@@ -281,6 +281,29 @@ class AlertEvent(models.Model):
         return f"{self.kind} {self.method} {self.path} ({self.status})"
 
 
+class JobHeartbeat(models.Model):
+    """Last-completed-cycle record for background jobs (one row per job).
+
+    Written at the end of every successful cycle so ops can distinguish "the
+    job is running and found nothing" from "the job silently died" — the
+    failure mode G3 review flagged for the anomaly detector. Exposed (name +
+    freshness only, no project data) via the unauthenticated /health/jobs
+    endpoint for external monitors.
+    """
+
+    name = models.CharField(max_length=100, primary_key=True)
+    last_run_at = models.DateTimeField()
+    last_scanned = models.IntegerField(default=0)
+    last_created = models.IntegerField(default=0)
+    last_duration_ms = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "job_heartbeats"
+
+    def __str__(self):
+        return f"{self.name} @ {self.last_run_at}"
+
+
 class ProjectInvitation(models.Model):
     """A pending email invitation to join a project with a role.
 

@@ -228,14 +228,41 @@ def detect_project_anomalies(project, now: datetime | None = None) -> int:
     return created
 
 
+HEARTBEAT_NAME = "detect_anomalies"
+# A cycle every WINDOW_MINUTES; three missed cycles = stale (matches the
+# 3-consecutive-window philosophy: one hiccup isn't an incident).
+HEARTBEAT_STALE_AFTER_SECONDS = WINDOW_MINUTES * 60 * 3
+
+
+def _record_heartbeat(scanned: int, created: int, duration_ms: int) -> None:
+    from .models import JobHeartbeat
+
+    try:
+        JobHeartbeat.objects.update_or_create(
+            name=HEARTBEAT_NAME,
+            defaults={
+                "last_run_at": datetime.now(tz.utc),
+                "last_scanned": scanned,
+                "last_created": created,
+                "last_duration_ms": duration_ms,
+            },
+        )
+    except Exception:
+        # Monitoring must never take the job down with it.
+        logger.exception("failed to record job heartbeat")
+
+
 def run_detection_cycle() -> tuple[int, int]:
     """Scan every active project; returns (projects_scanned, alerts_created)."""
+    import time
+
     from .models import Project
 
     if not anomaly_alerts_enabled():
         logger.info("anomaly detection disabled via APILENS_ANOMALY_ALERTS; skipping cycle")
         return 0, 0
 
+    started = time.monotonic()
     scanned = 0
     created = 0
     for project in Project.objects.filter(is_active=True).iterator():
@@ -245,4 +272,30 @@ def run_detection_cycle() -> tuple[int, int]:
         except Exception:
             # One project's failure must not starve the rest of the cycle.
             logger.exception("anomaly detection failed for project %s", project.slug)
+    _record_heartbeat(scanned, created, int((time.monotonic() - started) * 1000))
     return scanned, created
+
+
+def job_health() -> dict:
+    """Freshness snapshot for /health/jobs (no project data — safe unauthenticated)."""
+    from .models import JobHeartbeat
+
+    enabled = anomaly_alerts_enabled()
+    hb = JobHeartbeat.objects.filter(name=HEARTBEAT_NAME).first()
+    if hb is None:
+        return {
+            "name": HEARTBEAT_NAME,
+            "enabled": enabled,
+            "last_run_at": None,
+            "age_seconds": None,
+            # Never-ran only counts as stale when the job is supposed to run.
+            "stale": enabled,
+        }
+    age = (datetime.now(tz.utc) - hb.last_run_at).total_seconds()
+    return {
+        "name": HEARTBEAT_NAME,
+        "enabled": enabled,
+        "last_run_at": hb.last_run_at.isoformat(),
+        "age_seconds": int(age),
+        "stale": enabled and age > HEARTBEAT_STALE_AFTER_SECONDS,
+    }
