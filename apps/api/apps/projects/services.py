@@ -3097,7 +3097,9 @@ class AnalyticsService:
                 countIf(status_code >= 400) AS error_count,
                 (countIf(status_code >= 400) / count()) * 100 AS error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
-                quantile(0.95)(response_time_ms) AS p95_response_time_ms
+                quantile(0.95)(response_time_ms) AS p95_response_time_ms,
+                sum(request_size) AS total_request_bytes,
+                sum(response_size) AS total_response_bytes
             FROM api_requests
             {' '.join(filters)}
             GROUP BY method, path
@@ -3110,137 +3112,10 @@ class AnalyticsService:
             rows = client.execute(query, params)
             # Rows are already dicts from the ClickHouse client wrapper
             clickhouse_items = [AnalyticsService._clean_nan_values(row) for row in rows]
-
-            # When a consumer or rich filter is applied, only show endpoints
-            # that actually matched — skip the DB overlay (which would re-add
-            # registered endpoints with zero traffic) and report ClickHouse's
-            # own count.
-            if consumer or filter:
-                return {"items": clickhouse_items, "total_count": int(total_count or 0)}
-
-            # Get all registered endpoints from PostgreSQL
-            db_result = AnalyticsService._get_endpoints_from_db(
-                project_id=project_id,
-                app_ids=app_ids,
-                methods=methods,
-                search_query=search_query,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-                page=page,
-                page_size=page_size,
-            )
-
-            # Merge ClickHouse stats into PostgreSQL endpoints
-            # Create a lookup map for ClickHouse data
-            stats_map = {(item["method"], item["path"]): item for item in clickhouse_items}
-
-            # Overlay ClickHouse stats onto DB endpoints
-            merged_items = []
-            for db_item in db_result["items"]:
-                key = (db_item["method"], db_item["path"])
-                if key in stats_map:
-                    # Use ClickHouse stats if available
-                    merged_items.append(stats_map[key])
-                else:
-                    # Keep DB endpoint with 0 stats
-                    merged_items.append(db_item)
-
-            return {"items": merged_items, "total_count": db_result["total_count"]}
+            return {"items": clickhouse_items, "total_count": int(total_count or 0)}
         except Exception as exc:
-            logger.warning("ClickHouse query failed for project endpoint stats: %s", exc)
-            # Fall back to PostgreSQL endpoint records
-            return AnalyticsService._get_endpoints_from_db(
-                project_id=project_id,
-                app_ids=app_ids,
-                methods=methods,
-                search_query=search_query,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-                page=page,
-                page_size=page_size,
-            )
-
-    @staticmethod
-    def _get_endpoints_from_db(
-        project_id: str,
-        app_ids: list[str] | None = None,
-        methods: list[str] | None = None,
-        search_query: str | None = None,
-        sort_by: str = "total_requests",
-        sort_dir: str = "desc",
-        page: int = 1,
-        page_size: int = 25,
-    ) -> dict:
-        """
-        Fallback to PostgreSQL when ClickHouse has no telemetry data.
-        Returns endpoint records from the database, grouped by (method, path).
-        """
-        from apps.projects.models import Endpoint
-        from django.db.models import Q, Max
-
-        # Start with base query for endpoints in this project
-        queryset = Endpoint.objects.filter(
-            app__project_id=project_id,
-            app__is_active=True,
-            is_active=True
-        )
-
-        # Filter by apps if specified
-        if app_ids:
-            queryset = queryset.filter(app_id__in=app_ids)
-
-        # Filter by methods
-        if methods:
-            queryset = queryset.filter(method__in=methods)
-
-        # Search filter
-        if search_query:
-            queryset = queryset.filter(
-                Q(path__icontains=search_query) | Q(method__icontains=search_query)
-            )
-
-        # Group by (method, path) and get the latest last_seen_at for each group
-        queryset = queryset.values("method", "path").annotate(
-            latest_seen=Max("last_seen_at")
-        )
-
-        # Get total count before pagination
-        total_count = queryset.count()
-
-        # Sorting - map analytics sort fields to database fields
-        sort_field_map = {
-            "endpoint": "path",
-            "total_requests": "-latest_seen",  # Most recent as proxy for popular
-            "error_rate": "path",
-            "avg_response_time_ms": "path",
-            "p95_response_time_ms": "path",
-        }
-        db_sort_field = sort_field_map.get(sort_by, "-latest_seen")
-        if sort_dir.lower() == "asc" and db_sort_field.startswith("-"):
-            db_sort_field = db_sort_field[1:]
-        elif sort_dir.lower() == "desc" and not db_sort_field.startswith("-"):
-            db_sort_field = f"-{db_sort_field}"
-
-        queryset = queryset.order_by(db_sort_field, "method", "path")
-
-        # Pagination
-        offset = (page - 1) * page_size
-        endpoints = queryset[offset:offset + page_size]
-
-        # Format as analytics response (with zeros for metrics)
-        items = []
-        for endpoint in endpoints:
-            items.append({
-                "method": endpoint["method"],
-                "path": endpoint["path"],
-                "total_requests": 0,
-                "error_count": 0,
-                "error_rate": 0.0,
-                "avg_response_time_ms": 0.0,
-                "p95_response_time_ms": 0.0,
-            })
-
-        return {"items": items, "total_count": total_count}
+            logger.warning("ClickHouse query failed for project endpoint stats; returning empty list: %s", exc)
+            return {"items": [], "total_count": 0}
 
     @staticmethod
     def get_project_environments(
