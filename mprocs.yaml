@@ -41,6 +41,10 @@ procs:
   web:
     # Next.js dashboard on :3002.
     shell: "pnpm --filter frontend dev"
+  alerts:
+    # Endpoint anomaly detection loop (one cycle / 5 min, heartbeat per cycle).
+    # Kill-switch: APILENS_ANOMALY_ALERTS=false disables it (env always wins).
+    shell: "sleep 6 && cd apps/api && .venv/bin/python manage.py detect_anomalies --loop"
   # ── SDK integration sidecars (off by default — press `s` to start) ──────────
   sidecar-fastapi:
     autostart: false

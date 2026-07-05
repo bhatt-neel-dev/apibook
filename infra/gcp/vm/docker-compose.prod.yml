@@ -209,6 +209,28 @@ services:
   # schema, then exit. The api service waits for this to complete successfully.
   # (`clickhouse_migrate` is a real management command in the codebase:
   # apps/api/core/database/clickhouse/management/commands/clickhouse_migrate.py)
+  # Endpoint anomaly detection (error-rate / p95 latency vs rolling baseline).
+  # One cycle every 5 minutes; each cycle prints a heartbeat line — monitoring
+  # watches for that line going quiet. Kill-switch: set APILENS_ANOMALY_ALERTS
+  # to a falsey value in the VM .env and restart this service (env always wins;
+  # the same flag also empties the alert-serving APIs in the api container).
+  alerts-job:
+    image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
+    restart: unless-stopped
+    logging: *default-logging
+    command: python manage.py detect_anomalies --loop
+    environment:
+      <<: *db-env
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      APILENS_ANOMALY_ALERTS: ${APILENS_ANOMALY_ALERTS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
   migrate:
     image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
     restart: "no"

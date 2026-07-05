@@ -43,12 +43,15 @@ class Command(BaseCommand):
             scanned, created = run_detection_cycle()
             elapsed = time.monotonic() - started
             # Heartbeat — external monitoring watches for this line going quiet.
+            # Flush explicitly: under a pipe/container, buffered stdout would
+            # hold heartbeats back and make the job look dead while it runs.
             self.stdout.write(
                 self.style.SUCCESS(
                     f"anomaly-detection heartbeat: {scanned} project(s) scanned, "
                     f"{created} alert(s) created in {elapsed:.1f}s"
                 )
             )
+            self.stdout.flush()
             if interval is None:
                 return
             time.sleep(max(interval - elapsed, 1.0))
