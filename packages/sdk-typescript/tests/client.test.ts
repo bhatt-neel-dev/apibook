@@ -1,6 +1,14 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ApiLensClient } from "../src/client.js";
+
+const packageJson = JSON.parse(
+  readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf-8"),
+) as { version: string };
 
 afterEach(async () => {
   await ApiLensClient.shutdown();
@@ -132,6 +140,27 @@ describe("ApiLensClient", () => {
     client.capture({ method: "GET", path: "/x", status_code: 200, response_time_ms: 1 });
     await client.flushAll();
     expect(urls[0]).toBe("http://localhost:8000/ingest/requests");
+  });
+
+  it("sends a User-Agent header matching the released package.json version", async () => {
+    const headers: Array<Record<string, string> | undefined> = [];
+    const client = new ApiLensClient({
+      apiKey: "test",
+      projectSlug: "test",
+      appId: "test",
+      enabled: true,
+      batchSize: 10,
+      fetchImpl: async (_url, options) => {
+        headers.push(options?.headers as Record<string, string> | undefined);
+        return new Response(null, { status: 200 });
+      },
+    });
+
+    client.stop();
+    client.capture({ method: "GET", path: "/x", status_code: 200, response_time_ms: 1 });
+    await client.flushAll();
+
+    expect(headers[0]?.["User-Agent"]).toBe(`apilens-js-sdk/${packageJson.version}`);
   });
 
   it("uses absolute ingestPath as-is", async () => {

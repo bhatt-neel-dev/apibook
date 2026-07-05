@@ -1264,10 +1264,11 @@ class ConsumerStatsService:
         until: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
-        from core.database.clickhouse.client import get_clickhouse_client
-
-        if not consumer or not consumer.strip():
-            return []
+        # Not implemented yet — only reachable via the unmounted apps router
+        # (routers/apps/router.py), so this is a safe no-op rather than a
+        # crash: honors the declared list[dict] return type instead of
+        # falling through to an implicit None.
+        return []
 
     @staticmethod
     def get_consumer_activity(
