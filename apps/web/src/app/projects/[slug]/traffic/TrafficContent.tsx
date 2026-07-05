@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -22,7 +22,7 @@ import FilterBar from "../_shared/filters/FilterBar";
 import { parseFilter } from "../_shared/filters/query";
 import EndpointDetailInspector from "./EndpointDetailInspector";
 
-/* â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Types ───────────────────────────────────────────────────────────── */
 
 interface Summary {
   total_requests: number;
@@ -97,18 +97,18 @@ const EMPTY_SUMMARY: Summary = {
   unique_endpoints: 0, unique_consumers: 0,
 };
 
-// Chart palette â€” tuned to sit with the teal Aperture theme instead of the
+// Chart palette — tuned to sit with the teal Aperture theme instead of the
 // neon green/red defaults, which read "too sharp" on the dark surfaces.
 const ACCENT = "#14b8a6";
-const GREEN = "#10b981"; // emerald â€” harmonises with the teal accent
+const GREEN = "#10b981"; // emerald — harmonises with the teal accent
 const YELLOW = "#f59e0b";
-const RED = "#f87171"; // soft red â€” matches the "bad" text tone elsewhere
+const RED = "#f87171"; // soft red — matches the "bad" text tone elsewhere
 const GRID = "rgba(148,163,184,0.12)";
 const AXIS = { fontSize: 10, fill: "var(--text-muted)" } as const;
 // Static bar heights (%) for the chart loading skeleton.
 const SKELETON_BARS = [58, 80, 46, 88, 62, 74, 52, 90, 66, 78, 48, 84];
 
-/* â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Helpers ─────────────────────────────────────────────────────────── */
 
 function fmtNum(n: number): string {
   return Math.round(n || 0).toLocaleString();
@@ -158,14 +158,14 @@ function errToneClass(errRate: number): string {
   return "";
 }
 
-/* â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Component ───────────────────────────────────────────────────────── */
 
 export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   const [apps, setApps] = useState<AppOption[]>([]);
   const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
   const [appsLoaded, setAppsLoaded] = useState(false);
 
-  // Unified rich filter (env, method, status, path, latency, consumer, â€¦).
+  // Unified rich filter (env, method, status, path, latency, consumer, …).
   // App scope stays as the dedicated AppFilter; time as the range picker.
   const [filter, setFilter] = useState(() => seedFilter(initialFilters));
   // Environment for the endpoint inspector's sub-queries, derived from filter.
@@ -279,7 +279,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   const buildQuery = useCallback(
     (extra?: Record<string, string>) => {
       const p = new URLSearchParams();
-      // Omit app_slugs when every app is selected â€” that's the aggregate view.
+      // Omit app_slugs when every app is selected — that's the aggregate view.
       if (selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
         p.set("app_slugs", selectedAppSlugs.join(","));
       } else if (selectedAppSlugs.length && apps.length === 0) {
@@ -298,7 +298,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   // Fetch summary + timeseries + endpoints whenever filters change.
   useEffect(() => {
     if (!appsLoaded) return;
-    // Nothing selected â†’ empty state, skip the network round-trip.
+    // Nothing selected → empty state, skip the network round-trip.
     if (apps.length > 0 && selectedAppSlugs.length === 0) {
       setSummary(EMPTY_SUMMARY);
       setSeries([]);
@@ -473,13 +473,13 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
       aria-sort={sortKey === key ? "descending" : "none"}
     >
       {label}
-      <span className="tf-th-arrow">{sortKey === key ? "â†“" : ""}</span>
+      <span className="tf-th-arrow">{sortKey === key ? "↓" : ""}</span>
     </th>
   );
 
   return (
     <div className="tf">
-      {/* â”€â”€ Toolbar â”€â”€ */}
+      {/* ── Toolbar ── */}
       <div className="tf-toolbar">
         <h1 className="tf-title">Traffic</h1>
         <div className="tf-toolbar-spacer" />
@@ -504,7 +504,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["app"]} />
       </div>
 
-      {/* â”€â”€ Metrics + chart (metrics are tabs that drive the chart) â”€â”€ */}
+      {/* ── Metrics + chart (metrics are tabs that drive the chart) ── */}
       <section className="tf-panel">
         <div className="tf-metrics" role="tablist" aria-label="Traffic metric">
           {(Object.keys(METRICS) as MetricKey[]).map((key) => {
@@ -520,7 +520,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 onClick={() => setActiveMetric(key)}
               >
                 <span className="tf-metric-label">{m.label}</span>
-                <span className="tf-metric-value">{loading ? "â€”" : m.value}</span>
+                <span className="tf-metric-value">{loading ? "—" : m.value}</span>
               </button>
             );
           })}
@@ -539,10 +539,10 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
           )}
           {/* We measure the stage ourselves (stageWidth) and pass concrete
               numeric width/height to the chart instead of using recharts'
-              ResponsiveContainer â€” that container always initialises its size
+              ResponsiveContainer — that container always initialises its size
               to -1 on mount and logs a "width(-1)" warning before its observer
               fires. Driving width from our ResizeObserver keeps it responsive
-              with no warning. key={active.kind} only remounts on barâ†”area;
+              with no warning. key={active.kind} only remounts on bar↔area;
               same-type metric switches animate in place. */}
           <div ref={stageRef} className="tf-chart-stage" style={{ height: 220, width: "100%", minWidth: 0 }}>
             {!loading && chartData.length === 0 ? (
@@ -592,7 +592,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         </div>
       </section>
 
-      {/* â”€â”€ Endpoints table â”€â”€ */}
+      {/* ── Endpoints table ── */}
       <section className="tf-table-card">
         <div className="tf-search-row">
           <div className="ep-search">
@@ -601,7 +601,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
               type="text"
               value={endpointSearch}
               onChange={(e) => setEndpointSearch(e.target.value)}
-              placeholder="Search endpointsâ€¦"
+              placeholder="Search endpoints…"
             />
             {endpointSearch && (
               <button
@@ -748,7 +748,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   );
 }
 
-/* â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Sub-components ───────────────────────────────────────────────────── */
 
 function AppFilter({
   apps,
