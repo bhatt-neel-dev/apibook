@@ -134,6 +134,23 @@ export interface ProjectListItem {
   created_at: string;
 }
 
+export interface AlertEventInfo {
+  id: string;
+  project_slug: string;
+  project_name: string;
+  app_slug: string;
+  kind: "error_rate" | "latency";
+  method: string;
+  path: string;
+  observed_value: number;
+  baseline_value: number;
+  threshold_value: number;
+  status: "active" | "dismissed";
+  window_start: string;
+  window_end: string;
+  created_at: string;
+}
+
 export interface AppInfo {
   id: string;
   name: string;
@@ -622,6 +639,22 @@ export const apiClient = {
 
   async declineInvitation(inviteId: string): Promise<ApiResponse<{ message: string }>> {
     return fetchDjango<{ message: string }>(`/projects/invitations/${inviteId}/decline`, {
+      method: "POST",
+    });
+  },
+
+  // ── Anomaly Alerts ────────────────────────────────────────────────
+
+  async getRecentAlerts(): Promise<ApiResponse<AlertEventInfo[]>> {
+    return fetchDjango<AlertEventInfo[]>(`/projects/alerts/recent`);
+  },
+
+  async getProjectAlerts(projectSlug: string, status: string = "active"): Promise<ApiResponse<AlertEventInfo[]>> {
+    return fetchDjango<AlertEventInfo[]>(`/projects/${projectSlug}/alerts?status=${encodeURIComponent(status)}`);
+  },
+
+  async dismissAlert(projectSlug: string, alertId: string): Promise<ApiResponse<AlertEventInfo>> {
+    return fetchDjango<AlertEventInfo>(`/projects/${projectSlug}/alerts/${alertId}/dismiss`, {
       method: "POST",
     });
   },
