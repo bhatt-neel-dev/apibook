@@ -214,6 +214,73 @@ class ProjectMember(models.Model):
         return f"{self.user_id} @ {self.project_id} ({self.role})"
 
 
+class AlertEvent(models.Model):
+    """An anomaly detected on a project endpoint by the baseline-deviation job.
+
+    Rows are written by the `detect_anomalies` job when an endpoint's error rate
+    or p95 latency deviates from its own trailing hour-of-day-matched baseline.
+    `dedup_key` (kind:method:path:YYYY-MM-DD) caps alerts at one per endpoint,
+    metric, and day so a sustained incident doesn't flood the feed. Rows are
+    harmless orphans if the feature is killed via APILENS_ANOMALY_ALERTS — the
+    rollback story depends on that, so keep this table free of anything other
+    code paths read.
+    """
+
+    class Kind(models.TextChoices):
+        ERROR_RATE = "error_rate", "Error rate"
+        LATENCY = "latency", "Latency"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        DISMISSED = "dismissed", "Dismissed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project", on_delete=models.CASCADE, related_name="alert_events"
+    )
+    app = models.ForeignKey(
+        "projects.App",
+        on_delete=models.CASCADE,
+        related_name="alert_events",
+        null=True,
+        blank=True,
+    )
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    method = models.CharField(max_length=10)
+    path = models.CharField(max_length=500)
+    observed_value = models.FloatField()
+    baseline_value = models.FloatField()
+    threshold_value = models.FloatField()
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True
+    )
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    dismissed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    dedup_key = models.CharField(max_length=560)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "alert_events"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["project", "status", "-created_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "dedup_key"], name="unique_alert_dedup_per_project"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} {self.method} {self.path} ({self.status})"
+
+
 class ProjectInvitation(models.Model):
     """A pending email invitation to join a project with a role.
 

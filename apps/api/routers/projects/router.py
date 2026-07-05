@@ -13,7 +13,8 @@ from django.db import transaction
 from ninja import Router
 
 from apps.auth.services import ApiKeyService
-from apps.projects.models import App
+from apps.projects.anomaly import anomaly_alerts_enabled
+from apps.projects.models import AlertEvent, App
 from apps.projects.services import ProjectService, AppService, AnalyticsService, DataQueryService
 from apps.projects.membership import MembershipService
 from apps.users.models import User
@@ -44,6 +45,7 @@ from .schemas import (
     AcceptInvitationRequest,
     PendingInvitationResponse,
     AcceptResultResponse,
+    AlertEventResponse,
 )
 
 router = Router(auth=[jwt_auth])
@@ -291,6 +293,63 @@ def decline_invitation(request: HttpRequest, data: AcceptInvitationRequest):
     user: User = request.auth
     MembershipService.decline_by_token(user, data.token)
     return MessageResponse(message="Invitation declined")
+
+
+# ── Anomaly Alerts (notification bell + per-project feed) ─────────────
+
+
+@router.get("/alerts/recent", response=list[AlertEventResponse])
+def list_recent_alerts(request: HttpRequest, limit: int = 20):
+    """Active anomaly alerts across all the user's projects (powers the bell)."""
+    user: User = request.auth
+    if not anomaly_alerts_enabled():
+        return []
+    projects = ProjectService.list_projects(user)
+    alerts = (
+        AlertEvent.objects.filter(
+            project__in=projects, status=AlertEvent.Status.ACTIVE
+        )
+        .select_related("project", "app")
+        .order_by("-created_at")[: max(1, min(limit, 50))]
+    )
+    return [AlertEventResponse.from_orm(a) for a in alerts]
+
+
+@router.get("/{project_slug}/alerts", response=list[AlertEventResponse])
+def list_project_alerts(
+    request: HttpRequest, project_slug: str, status: str = "active", limit: int = 50
+):
+    """Anomaly alerts for one project (any member can read)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    if not anomaly_alerts_enabled():
+        return []
+    qs = AlertEvent.objects.filter(project=project).select_related("project", "app")
+    if status != "all":
+        qs = qs.filter(status=status)
+    return [AlertEventResponse.from_orm(a) for a in qs[: max(1, min(limit, 200))]]
+
+
+@router.post("/{project_slug}/alerts/{alert_id}/dismiss", response=AlertEventResponse)
+def dismiss_alert(request: HttpRequest, project_slug: str, alert_id: str):
+    """Dismiss an alert (requires write access to the project)."""
+    from django.utils import timezone as dj_timezone
+
+    from core.exceptions.base import NotFoundError
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    alert = AlertEvent.objects.filter(id=alert_id, project=project).select_related(
+        "project", "app"
+    ).first()
+    if alert is None:
+        raise NotFoundError("Alert not found")
+    if alert.status != AlertEvent.Status.DISMISSED:
+        alert.status = AlertEvent.Status.DISMISSED
+        alert.dismissed_at = dj_timezone.now()
+        alert.dismissed_by = user
+        alert.save(update_fields=["status", "dismissed_at", "dismissed_by"])
+    return AlertEventResponse.from_orm(alert)
 
 
 # ── Project-level Analytics (aggregated) ─────────────────────────────
