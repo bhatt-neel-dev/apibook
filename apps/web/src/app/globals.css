@@ -14441,3 +14441,18 @@ a.settings-btn {
   background: color-mix(in srgb, #6b7280 12%, transparent);
   color: #6b7280;
 }
+
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary, #4b5563);
+}
+.settings-toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #14b8a6;
+  cursor: pointer;
+}

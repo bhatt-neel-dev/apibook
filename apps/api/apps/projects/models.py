@@ -28,6 +28,10 @@ class Project(models.Model):
     slug = models.SlugField(max_length=120, db_index=True)
     description = models.TextField(blank=True, default="")
     is_active = models.BooleanField(default=True)
+    # Per-project opt-out for anomaly-detection alerts (the detector skips
+    # disabled projects entirely). The APILENS_ANOMALY_ALERTS env kill-switch
+    # remains the global ops lever and overrides this in the OFF direction.
+    anomaly_alerts_enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

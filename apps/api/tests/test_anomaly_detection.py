@@ -371,6 +371,48 @@ class FalsePositiveMetricTests(DjangoTestCase):
         )
 
 
+class PerProjectToggleTests(DjangoTestCase):
+    """Project.anomaly_alerts_enabled gates the detection cycle per project."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from apps.projects.models import Project
+        from apps.users.models import User
+
+        cls.user = User.objects.create(email="toggle-tester@apilens.local")
+        cls.enabled_p = Project.objects.create(owner=cls.user, name="On P", slug="on-p")
+        cls.disabled_p = Project.objects.create(
+            owner=cls.user, name="Off P", slug="off-p", anomaly_alerts_enabled=False
+        )
+
+    def test_cycle_scans_only_enabled_projects(self):
+        from unittest.mock import MagicMock, patch
+
+        from apps.projects.anomaly import run_detection_cycle
+
+        client = MagicMock()
+        client.execute.return_value = []
+        with patch("core.database.clickhouse.client.get_clickhouse_client", return_value=client):
+            scanned, _ = run_detection_cycle()
+
+        self.assertEqual(scanned, 1)  # only on-p; off-p skipped
+
+    def test_default_is_enabled(self):
+        from apps.projects.models import Project
+
+        p = Project.objects.create(owner=self.user, name="Default P", slug="default-p")
+        self.assertTrue(p.anomaly_alerts_enabled)
+
+    def test_service_updates_toggle_and_leaves_other_fields(self):
+        from apps.projects.services import ProjectService
+
+        updated = ProjectService.update_project(
+            self.user, "on-p", anomaly_alerts_enabled=False
+        )
+        self.assertFalse(updated.anomaly_alerts_enabled)
+        self.assertEqual(updated.name, "On P")  # untouched
+
+
 if __name__ == "__main__":
     import unittest
 

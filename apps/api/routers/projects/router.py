@@ -94,7 +94,9 @@ def get_project(request: HttpRequest, project_slug: str):
 def update_project(request: HttpRequest, project_slug: str, data: UpdateProjectRequest):
     """Update a project's details."""
     user: User = request.auth
-    project = ProjectService.update_project(user, project_slug, data.name, data.description)
+    project = ProjectService.update_project(
+        user, project_slug, data.name, data.description, data.anomaly_alerts_enabled
+    )
     return ProjectResponse.from_orm(project)
 
 

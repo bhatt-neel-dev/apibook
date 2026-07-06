@@ -238,9 +238,13 @@ class ProjectService:
         slug: str,
         name: str | None = None,
         description: str | None = None,
+        anomaly_alerts_enabled: bool | None = None,
     ) -> Project:
         """Update a project's details. Requires the `admin` role."""
         project = ProjectService.get_project_by_slug(user, slug, action="admin")
+
+        if anomaly_alerts_enabled is not None:
+            project.anomaly_alerts_enabled = anomaly_alerts_enabled
 
         if name is not None:
             name = name.strip()

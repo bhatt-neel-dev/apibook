@@ -18,6 +18,7 @@ interface ProjectInfo {
   name: string;
   slug: string;
   description: string;
+  anomaly_alerts_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -132,6 +133,23 @@ export default function ProjectSettingsContent({
       showToast("error", err instanceof Error ? err.message : "Failed to update project");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleToggleAlerts = async (enabled: boolean) => {
+    // Optimistic flip; revert on failure.
+    setProject((prev) => (prev ? { ...prev, anomaly_alerts_enabled: enabled } : prev));
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ anomaly_alerts_enabled: enabled }),
+      });
+      if (!res.ok) throw new Error();
+      showToast("success", enabled ? "Anomaly alerts enabled" : "Anomaly alerts disabled");
+    } catch {
+      setProject((prev) => (prev ? { ...prev, anomaly_alerts_enabled: !enabled } : prev));
+      showToast("error", "Failed to update alert settings");
     }
   };
 
@@ -288,6 +306,24 @@ export default function ProjectSettingsContent({
                     </button>
                   </div>
                 </form>
+              </SettingsCard>
+
+              <SettingsCard
+                title="Anomaly Alerts"
+                description="Automatic alerts when an endpoint's error rate or latency deviates from its own rolling baseline — no thresholds to configure."
+              >
+                <label className="settings-toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={project.anomaly_alerts_enabled}
+                    onChange={(e) => handleToggleAlerts(e.target.checked)}
+                  />
+                  <span>
+                    {project.anomaly_alerts_enabled
+                      ? "Enabled — anomalies appear in the bell and the Alerts page."
+                      : "Disabled — this project is skipped by the detector."}
+                  </span>
+                </label>
               </SettingsCard>
 
               <SettingsCard

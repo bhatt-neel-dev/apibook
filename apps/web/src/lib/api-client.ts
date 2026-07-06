@@ -70,6 +70,7 @@ export interface ProjectInfo {
   name: string;
   slug: string;
   description: string;
+  anomaly_alerts_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -542,7 +543,7 @@ export const apiClient = {
     });
   },
 
-  async updateProject(slug: string, data: { name?: string; description?: string }): Promise<ApiResponse<ProjectInfo>> {
+  async updateProject(slug: string, data: { name?: string; description?: string; anomaly_alerts_enabled?: boolean }): Promise<ApiResponse<ProjectInfo>> {
     return fetchDjango<ProjectInfo>(`/projects/${slug}`, {
       method: "PATCH",
       body: JSON.stringify(data),

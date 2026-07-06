@@ -18,6 +18,7 @@ class CreateProjectRequest(Schema):
 class UpdateProjectRequest(Schema):
     name: str | None = None
     description: str | None = None
+    anomaly_alerts_enabled: bool | None = None
 
 
 class ProjectResponse(Schema):
@@ -25,6 +26,7 @@ class ProjectResponse(Schema):
     name: str
     slug: str
     description: str
+    anomaly_alerts_enabled: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -35,6 +37,7 @@ class ProjectResponse(Schema):
             name=project.name,
             slug=project.slug,
             description=project.description,
+            anomaly_alerts_enabled=project.anomaly_alerts_enabled,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )

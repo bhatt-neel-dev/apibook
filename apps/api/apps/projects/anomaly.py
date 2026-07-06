@@ -265,7 +265,9 @@ def run_detection_cycle() -> tuple[int, int]:
     started = time.monotonic()
     scanned = 0
     created = 0
-    for project in Project.objects.filter(is_active=True).iterator():
+    for project in Project.objects.filter(
+        is_active=True, anomaly_alerts_enabled=True
+    ).iterator():
         scanned += 1
         try:
             created += detect_project_anomalies(project)
