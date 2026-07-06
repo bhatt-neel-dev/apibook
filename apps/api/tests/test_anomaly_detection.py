@@ -412,6 +412,24 @@ class PerProjectToggleTests(DjangoTestCase):
         self.assertFalse(updated.anomaly_alerts_enabled)
         self.assertEqual(updated.name, "On P")  # untouched
 
+    def test_project_slugs_restrict_the_cycle(self):
+        from unittest.mock import MagicMock, patch
+
+        from apps.projects.anomaly import run_detection_cycle
+        from apps.projects.models import Project
+
+        Project.objects.create(owner=self.user, name="Second On", slug="second-on")
+        client = MagicMock()
+        client.execute.return_value = []
+        with patch("core.database.clickhouse.client.get_clickhouse_client", return_value=client):
+            scanned_all, _ = run_detection_cycle()
+            scanned_one, _ = run_detection_cycle(project_slugs=["on-p"])
+            scanned_unknown, _ = run_detection_cycle(project_slugs=["no-such-project"])
+
+        self.assertEqual(scanned_all, 2)  # on-p + second-on (off-p stays excluded)
+        self.assertEqual(scanned_one, 1)
+        self.assertEqual(scanned_unknown, 0)  # unknown slug matches nothing, no crash
+
 
 if __name__ == "__main__":
     import unittest

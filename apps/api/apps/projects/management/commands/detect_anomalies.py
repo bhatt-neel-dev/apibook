@@ -27,6 +27,13 @@ class Command(BaseCommand):
             metavar="SECONDS",
             help=f"Run continuously, sleeping SECONDS between cycles (default {WINDOW_MINUTES * 60})",
         )
+        parser.add_argument(
+            "--project",
+            action="append",
+            dest="projects",
+            metavar="SLUG",
+            help="Restrict to a project slug (repeatable) — the staged-rollout lever",
+        )
 
     def handle(self, *args, **options):
         if not anomaly_alerts_enabled():
@@ -38,9 +45,10 @@ class Command(BaseCommand):
             return
 
         interval = options["loop"]
+        project_slugs = options.get("projects") or None
         while True:
             started = time.monotonic()
-            scanned, created = run_detection_cycle()
+            scanned, created = run_detection_cycle(project_slugs)
             elapsed = time.monotonic() - started
             # Heartbeat — external monitoring watches for this line going quiet.
             # Flush explicitly: under a pipe/container, buffered stdout would

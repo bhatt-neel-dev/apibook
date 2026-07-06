@@ -252,8 +252,13 @@ def _record_heartbeat(scanned: int, created: int, duration_ms: int) -> None:
         logger.exception("failed to record job heartbeat")
 
 
-def run_detection_cycle() -> tuple[int, int]:
-    """Scan every active project; returns (projects_scanned, alerts_created)."""
+def run_detection_cycle(project_slugs: list[str] | None = None) -> tuple[int, int]:
+    """Scan active projects; returns (projects_scanned, alerts_created).
+
+    `project_slugs` restricts the cycle to named projects — the staged-rollout
+    lever: run the job against dogfood/pilot projects only before opening it to
+    everyone. Unknown slugs simply match nothing (scanned count exposes this).
+    """
     import time
 
     from .models import Project
@@ -265,9 +270,10 @@ def run_detection_cycle() -> tuple[int, int]:
     started = time.monotonic()
     scanned = 0
     created = 0
-    for project in Project.objects.filter(
-        is_active=True, anomaly_alerts_enabled=True
-    ).iterator():
+    projects = Project.objects.filter(is_active=True, anomaly_alerts_enabled=True)
+    if project_slugs:
+        projects = projects.filter(slug__in=project_slugs)
+    for project in projects.iterator():
         scanned += 1
         try:
             created += detect_project_anomalies(project)
