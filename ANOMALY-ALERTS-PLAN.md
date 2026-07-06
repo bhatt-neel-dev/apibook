@@ -1,6 +1,6 @@
 # Anomaly Alerts — Implementation Plan & Validation Record
 
-Feature: baseline-deviation anomaly alerts (OPERATING-MODEL.md §17 worked example).
+Feature: baseline-deviation anomaly alerts.
 Branch: `dharmik-anomaly-alerts`. Status: **core shipped & live-verified; rollout slices below.**
 
 ---

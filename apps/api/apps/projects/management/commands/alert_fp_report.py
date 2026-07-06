@@ -1,6 +1,6 @@
 """False-positive report for anomaly alerts.
 
-The launch guardrail (ANOMALY-ALERTS-PLAN.md, PRD §5) is a
+The launch guardrail (see ANOMALY-ALERTS-PLAN.md) is a
 dismissal-without-view rate under 40%: an alert nobody bothered to open
 before dismissing is our best proxy for "the detector cried wolf". This
 report is the input to the day-7/14/30 refine-or-rollback decision.

@@ -3,7 +3,7 @@
 Flags an endpoint when its error rate or p95 latency deviates from its own
 trailing hour-of-day-matched baseline — no static, user-configured thresholds.
 
-Model (ADR-014 in OPERATING-MODEL.md):
+Model (design record in ANOMALY-ALERTS-PLAN.md):
   - Baseline: per (endpoint, metric), the median + MAD of 5-minute bucket values
     from the trailing 7 days, restricted to buckets in the same (and previous)
     hour of day as now — so 9am traffic is judged against 9am history, not
