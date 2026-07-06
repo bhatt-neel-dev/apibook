@@ -58,7 +58,7 @@ Email/Slack delivery; user-configurable static thresholds; per-consumer anomalie
 
 ## 4. Known debts / cautions
 
-- **Migrations are repo-gitignored** (`**/migrations/`): every environment must run `makemigrations projects && migrate` — the AlertEvent table does not arrive via git. Worth revisiting as a repo-wide convention (tracked migrations are the Django norm), but out of this feature's scope.
-- **CI cannot run the DB-backed tests** until it generates migrations first (same root cause).
+- ~~Migrations are repo-gitignored~~ **FIXED**: the `**/migrations/` gitignore rule turned out to also exclude the ClickHouse `.sql` migrations — a CI-built image could create *neither* schema, despite the prod compose's `migrate` service depending on both. All Django + ClickHouse migrations are now tracked; verified by migrating a completely fresh Postgres from a `git archive` checkout (tracked files only) and a zero-drift `makemigrations --check`. CI can now also run the DB-backed tests.
+- Staged rollout now has its lever: `detect_anomalies --project <slug>` (repeatable, composes with `--loop`).
 - Baseline queries scan per-project; at 100+ projects consider one batched query across projects per cycle (cheap refactor, not needed at current scale).
 - The bell fetches on focus only; alerts appear on next focus/navigation, not via push — acceptable for v1, revisit with the alerts page.
