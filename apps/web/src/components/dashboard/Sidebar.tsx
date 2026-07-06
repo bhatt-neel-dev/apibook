@@ -12,6 +12,7 @@ import {
   Users,
   Settings,
   Bell,
+  BellRing,
   CircleHelpIcon,
   PanelLeftClose,
   PanelLeft,
@@ -84,6 +85,7 @@ export default function Sidebar() {
       { name: "Traffic", href: `/projects/${projectSlug}/traffic`, icon: Activity },
       { name: "Request logs", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
       { name: "Consumers", href: `/projects/${projectSlug}/consumers`, icon: Users },
+      { name: "Alerts", href: `/projects/${projectSlug}/alerts`, icon: BellRing },
       { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },
     ]
     : [
