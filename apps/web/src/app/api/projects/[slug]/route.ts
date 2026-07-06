@@ -22,6 +22,7 @@ export const PATCH = (
       await apiClient.updateProject(slug, {
         name: body.name,
         description: body.description,
+        anomaly_alerts_enabled: body.anomaly_alerts_enabled,
       })
     );
   });

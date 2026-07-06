@@ -70,6 +70,7 @@ export interface ProjectInfo {
   name: string;
   slug: string;
   description: string;
+  anomaly_alerts_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -131,6 +132,23 @@ export interface ProjectListItem {
   slug: string;
   description: string;
   app_count: number;
+  created_at: string;
+}
+
+export interface AlertEventInfo {
+  id: string;
+  project_slug: string;
+  project_name: string;
+  app_slug: string;
+  kind: "error_rate" | "latency";
+  method: string;
+  path: string;
+  observed_value: number;
+  baseline_value: number;
+  threshold_value: number;
+  status: "active" | "dismissed";
+  window_start: string;
+  window_end: string;
   created_at: string;
 }
 
@@ -525,7 +543,7 @@ export const apiClient = {
     });
   },
 
-  async updateProject(slug: string, data: { name?: string; description?: string }): Promise<ApiResponse<ProjectInfo>> {
+  async updateProject(slug: string, data: { name?: string; description?: string; anomaly_alerts_enabled?: boolean }): Promise<ApiResponse<ProjectInfo>> {
     return fetchDjango<ProjectInfo>(`/projects/${slug}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -622,6 +640,28 @@ export const apiClient = {
 
   async declineInvitation(inviteId: string): Promise<ApiResponse<{ message: string }>> {
     return fetchDjango<{ message: string }>(`/projects/invitations/${inviteId}/decline`, {
+      method: "POST",
+    });
+  },
+
+  // ── Anomaly Alerts ────────────────────────────────────────────────
+
+  async getRecentAlerts(): Promise<ApiResponse<AlertEventInfo[]>> {
+    return fetchDjango<AlertEventInfo[]>(`/projects/alerts/recent`);
+  },
+
+  async getProjectAlerts(projectSlug: string, status: string = "active"): Promise<ApiResponse<AlertEventInfo[]>> {
+    return fetchDjango<AlertEventInfo[]>(`/projects/${projectSlug}/alerts?status=${encodeURIComponent(status)}`);
+  },
+
+  async dismissAlert(projectSlug: string, alertId: string): Promise<ApiResponse<AlertEventInfo>> {
+    return fetchDjango<AlertEventInfo>(`/projects/${projectSlug}/alerts/${alertId}/dismiss`, {
+      method: "POST",
+    });
+  },
+
+  async markAlertSeen(projectSlug: string, alertId: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/alerts/${alertId}/seen`, {
       method: "POST",
     });
   },

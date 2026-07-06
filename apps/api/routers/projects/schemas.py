@@ -18,6 +18,7 @@ class CreateProjectRequest(Schema):
 class UpdateProjectRequest(Schema):
     name: str | None = None
     description: str | None = None
+    anomaly_alerts_enabled: bool | None = None
 
 
 class ProjectResponse(Schema):
@@ -25,6 +26,7 @@ class ProjectResponse(Schema):
     name: str
     slug: str
     description: str
+    anomaly_alerts_enabled: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -35,6 +37,7 @@ class ProjectResponse(Schema):
             name=project.name,
             slug=project.slug,
             description=project.description,
+            anomaly_alerts_enabled=project.anomaly_alerts_enabled,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -278,6 +281,42 @@ class AcceptResultResponse(Schema):
     message: str
     project_slug: str
     project_name: str
+
+
+class AlertEventResponse(Schema):
+    id: str
+    project_slug: str
+    project_name: str
+    app_slug: str = ""
+    kind: str
+    method: str
+    path: str
+    observed_value: float
+    baseline_value: float
+    threshold_value: float
+    status: str
+    window_start: datetime
+    window_end: datetime
+    created_at: datetime
+
+    @staticmethod
+    def from_orm(alert) -> "AlertEventResponse":
+        return AlertEventResponse(
+            id=str(alert.id),
+            project_slug=alert.project.slug,
+            project_name=alert.project.name,
+            app_slug=alert.app.slug if alert.app_id else "",
+            kind=alert.kind,
+            method=alert.method,
+            path=alert.path,
+            observed_value=alert.observed_value,
+            baseline_value=alert.baseline_value,
+            threshold_value=alert.threshold_value,
+            status=alert.status,
+            window_start=alert.window_start,
+            window_end=alert.window_end,
+            created_at=alert.created_at,
+        )
 
 class InviteInfoRequest(Schema):
     token: str

@@ -14414,3 +14414,45 @@ a.settings-btn {
   .tf-metric:nth-child(odd) { border-left: none; }
   .tf-td-ep { max-width: 260px; }
 }
+
+/* ── Anomaly alerts page ─────────────────────────────────────────── */
+.alerts-filter-tabs {
+  display: flex;
+  gap: 8px;
+}
+.alerts-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.alerts-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.alerts-status-active {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #ef4444;
+}
+.alerts-status-dismissed {
+  background: color-mix(in srgb, #6b7280 12%, transparent);
+  color: #6b7280;
+}
+
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary, #4b5563);
+}
+.settings-toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #14b8a6;
+  cursor: pointer;
+}

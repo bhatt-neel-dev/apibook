@@ -87,6 +87,19 @@ def health_check(request: HttpRequest):
     return {"status": "healthy", "service": "apilens-api"}
 
 
+@api.get("/health/jobs", tags=["System"])
+def jobs_health(request: HttpRequest):
+    """Background-job freshness (heartbeats) for external monitors.
+
+    Unauthenticated by design — exposes job names and timestamps only, never
+    project data. `stale: true` on any entry is the page-someone signal.
+    """
+    from apps.projects.anomaly import job_health
+
+    jobs = [job_health()]
+    return {"jobs": jobs, "stale": any(j["stale"] for j in jobs)}
+
+
 from routers.auth.router import router as auth_router
 from routers.users.router import router as users_router
 from routers.projects.router import router as projects_router
