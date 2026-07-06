@@ -221,12 +221,6 @@ next-env.d.ts
 
 
 # ==============================
-# Migrations
-# ==============================
-**/migrations/
-**/migrations/**
-
-# ==============================
 # Local agent / tooling artifacts
 # ==============================
 .claude/
