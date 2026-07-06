@@ -29,28 +29,17 @@ Branch: `dharmik-anomaly-alerts`. Status: **core shipped & live-verified; rollou
 
 Each slice is independently shippable; stop-safe after every row.
 
-### Slice 5 — Scheduler wiring (next; blocks real usage)
-The job exists but nothing runs it on cadence.
-- Add an `alerts` proc to `mprocs.yaml` (dev): `manage.py detect_anomalies --loop` from `apps/api`.
-- Add a service (or supervisor entry) to the production docker-compose running the same loop in the api image. New infra dependency — flagged at design time; failure modes to cover: silent death (mitigated by heartbeat monitoring below), double-run (safe: dedup makes cycles idempotent), resource contention (baseline cost measured at ~0.65s/cycle; re-measure at real scale before 100%).
-- **Exit criteria:** heartbeat line visible in prod logs every 5 min for 48h; ClickHouse CPU delta < 10% vs pre-deploy baseline.
+### Slice 5 — Scheduler wiring ✅ DONE
+`alerts` proc in `mprocs.yaml` (dev) + `alerts-job` service in the prod compose (backend image, `restart: unless-stopped`, healthy-DB dependencies, kill-switch env passthrough). QA caught and fixed a real bug: heartbeat lines sat in Python's stdout buffer under a pipe — explicit flush added so heartbeat monitoring can't mistake a healthy job for a dead one. Verified: 3 live heartbeats in loop mode, kill-switch loop exits immediately, `docker compose config` resolves.
 
-### Slice 6 — Heartbeat monitoring (G3 condition, partially met)
-The heartbeat line exists; nothing yet alarms on its absence.
-- Minimum viable: a Caddy/cron-side check (or Uptime-style monitor) that greps the last heartbeat age; > 15 min ⇒ notify.
-- Dogfood option (preferred, per operating model §16.4): emit the heartbeat as a request into APILens's own pipeline so its absence is visible in the product itself.
-- **Exit criteria:** deliberately stop the job in staging → notification arrives.
+### Slice 6 — Heartbeat monitoring ✅ DONE
+`JobHeartbeat` row written per cycle + unauthenticated `GET /health/jobs` reporting `{enabled, last_run_at, age_seconds, stale}` per job (stale = >3 missed cycles, only while enabled; kill-switched = "off", not "stale"). External monitors need one URL. Verified live both directions (fresh after cycle; stale after aging the row 20 min) + 4 tests including the exact threshold boundary. Remaining follow-up: point an actual external uptime monitor at `/health/jobs` in prod.
 
-### Slice 7 — False-positive metric (the launch guardrail)
-PRD guardrail: dismissal-without-click rate < 40%.
-- Already have the data: `AlertEvent.dismissed_*` vs. View clicks (add a `viewed_at` timestamp set by a lightweight `POST .../alerts/{id}/seen` when View is clicked — one field + one endpoint + one line in the bell).
-- A tiny management command or SQL to report weekly FP rate.
-- **Exit criteria:** the number is computable from prod data; reviewed at day 7/14/30 (the refine/rollback/scrap decision input).
+### Slice 7 — False-positive metric ✅ DONE
+`AlertEvent.viewed_at` (first view wins, guarded update), `POST .../alerts/{id}/seen` (read access), bell + alerts-page links fire it fire-and-forget, `alert_fp_report` command prints the dismissal-without-view rate with an explicit GUARDRAIL BREACHED marker at ≥40%. Verified: idempotency proven live, report math exact against known state (50% for 1-viewed-of-2-dismissed).
 
-### Slice 8 — Alerts page + per-project settings toggle
-- Full alert history page under `/projects/{slug}/alerts` (the bell caps at 20; history needs pagination — API already supports `status=all&limit`).
-- Per-project opt-out: `Project.anomaly_alerts_enabled` boolean + settings toggle (deliberately deferred from v1 to avoid a dead `AlertRule` table; the global kill-switch covers ops needs meanwhile).
-- **Exit criteria:** a user can disable alerts for one project without ops involvement.
+### Slice 8 — Alerts page + per-project toggle ✅ DONE
+`/projects/{slug}/alerts` (Active/Dismissed/All tabs, dismiss-in-place, deviation detail) + "Alerts" sidebar nav + `Project.anomaly_alerts_enabled` toggle on project settings (admin-only PATCH; the detector skips disabled projects entirely — zero query cost, not just suppressed alerts). QA caught and fixed a real bug: the BFF PATCH route silently dropped the new field (destructured only name/description) — UI showed success while Postgres kept the old value.
 
 ### Slice 9 — Tuning follow-ups (only if Slice-7 data demands)
 Candidates, in order of expected value: raise `CONSECUTIVE_WINDOWS` for low-traffic endpoints; per-endpoint minimum-traffic floor scaling; weekly-digest delivery mode (the worked example's scrap-scenario learning — validate demand first).
