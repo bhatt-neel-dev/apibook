@@ -659,6 +659,12 @@ export const apiClient = {
     });
   },
 
+  async markAlertSeen(projectSlug: string, alertId: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/alerts/${alertId}/seen`, {
+      method: "POST",
+    });
+  },
+
   // ── Apps (Project-scoped) ─────────────────────────────────────────
 
   async getProjectApps(projectSlug: string): Promise<ApiResponse<AppListItem[]>> {

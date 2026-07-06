@@ -299,6 +299,78 @@ class JobHeartbeatTests(DjangoTestCase):
         self.assertFalse(JobHeartbeat.objects.exists())
 
 
+class FalsePositiveMetricTests(DjangoTestCase):
+    """viewed_at semantics + the dismissed-without-view guardrail math."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from apps.projects.models import App, Project
+        from apps.users.models import User
+
+        cls.user = User.objects.create(email="fp-tester@apilens.local")
+        cls.project = Project.objects.create(owner=cls.user, name="FP P", slug="fp-p")
+        cls.app = App.objects.create(project=cls.project, name="Api", slug="api")
+
+    def _alert(self, dedup_suffix: str, **overrides):
+        from datetime import datetime, timezone as tz
+
+        from apps.projects.models import AlertEvent
+
+        now = datetime.now(tz.utc)
+        defaults = {
+            "project": self.project,
+            "app": self.app,
+            "kind": "error_rate",
+            "method": "GET",
+            "path": f"/v1/{dedup_suffix}",
+            "observed_value": 50.0,
+            "baseline_value": 2.0,
+            "threshold_value": 8.0,
+            "window_start": now,
+            "window_end": now,
+            "dedup_key": f"error_rate:GET:/v1/{dedup_suffix}:{now.date().isoformat()}",
+        }
+        defaults.update(overrides)
+        return AlertEvent.objects.create(**defaults)
+
+    def test_first_view_wins_and_is_never_overwritten(self):
+        from datetime import datetime, timedelta, timezone as tz
+
+        from apps.projects.models import AlertEvent
+
+        alert = self._alert("orders")
+        first = datetime.now(tz.utc) - timedelta(hours=1)
+        AlertEvent.objects.filter(id=alert.id, viewed_at__isnull=True).update(viewed_at=first)
+        # A second "seen" uses the same guarded update — must be a no-op.
+        AlertEvent.objects.filter(id=alert.id, viewed_at__isnull=True).update(
+            viewed_at=datetime.now(tz.utc)
+        )
+        alert.refresh_from_db()
+        self.assertEqual(alert.viewed_at, first)
+
+    def test_fp_rate_counts_only_dismissed_without_view(self):
+        from datetime import datetime, timezone as tz
+
+        from apps.projects.models import AlertEvent
+
+        now = datetime.now(tz.utc)
+        # dismissed + viewed  -> investigated, NOT a false positive
+        self._alert("a", status=AlertEvent.Status.DISMISSED, viewed_at=now, dismissed_at=now)
+        # dismissed + never viewed -> the FP proxy
+        self._alert("b", status=AlertEvent.Status.DISMISSED, dismissed_at=now)
+        # still active -> not resolved, out of the denominator
+        self._alert("c")
+
+        window = AlertEvent.objects.filter(project=self.project)
+        dismissed = window.filter(status=AlertEvent.Status.DISMISSED)
+        self.assertEqual(dismissed.count(), 2)
+        self.assertEqual(dismissed.filter(viewed_at__isnull=True).count(), 1)
+        # 1 of 2 dismissed lacked a view -> 50% FP proxy rate
+        self.assertEqual(
+            dismissed.filter(viewed_at__isnull=True).count() / dismissed.count(), 0.5
+        )
+
+
 if __name__ == "__main__":
     import unittest
 

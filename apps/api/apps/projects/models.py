@@ -256,6 +256,10 @@ class AlertEvent(models.Model):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True
     )
+    # First time any member clicked through to investigate. Never overwritten;
+    # dismissed-with-viewed_at-null is the false-positive proxy the launch
+    # guardrail (<40% dismissal-without-view) is computed from.
+    viewed_at = models.DateTimeField(null=True, blank=True)
     dismissed_at = models.DateTimeField(null=True, blank=True)
     dismissed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

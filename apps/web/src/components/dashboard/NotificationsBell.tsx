@@ -111,6 +111,9 @@ export default function NotificationsBell() {
   };
 
   const handleViewAlert = (alert: AlertEvent) => {
+    // Fire-and-forget: viewed_at feeds the false-positive metric; navigation
+    // must not wait on it (and its failure must not block investigating).
+    fetch(`/api/projects/${alert.project_slug}/alerts/${alert.id}/seen`, { method: "POST" }).catch(() => {});
     setOpen(false);
     router.push(`/projects/${alert.project_slug}/traffic`);
   };

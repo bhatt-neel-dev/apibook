@@ -330,6 +330,23 @@ def list_project_alerts(
     return [AlertEventResponse.from_orm(a) for a in qs[: max(1, min(limit, 200))]]
 
 
+@router.post("/{project_slug}/alerts/{alert_id}/seen", response=MessageResponse)
+def mark_alert_seen(request: HttpRequest, project_slug: str, alert_id: str):
+    """Record that a member clicked through to investigate (read access).
+
+    First view wins — viewed_at is never overwritten, so the false-positive
+    metric (dismissed-without-view) stays stable however many people look.
+    """
+    from django.utils import timezone as dj_timezone
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    AlertEvent.objects.filter(
+        id=alert_id, project=project, viewed_at__isnull=True
+    ).update(viewed_at=dj_timezone.now())
+    return MessageResponse(message="ok")
+
+
 @router.post("/{project_slug}/alerts/{alert_id}/dismiss", response=AlertEventResponse)
 def dismiss_alert(request: HttpRequest, project_slug: str, alert_id: str):
     """Dismiss an alert (requires write access to the project)."""
