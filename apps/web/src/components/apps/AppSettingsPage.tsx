@@ -16,7 +16,7 @@ interface ToastState {
 
 interface AppSettingsPageProps {
   appSlug: string;
-  projectSlug?: string;
+  projectSlug: string;
   initialTab?: AppSettingsTab;
 }
 
@@ -34,7 +34,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
 
   // Fetch PROJECT API key prefix for setup guide
   useEffect(() => {
-    if (activeTab !== "setup" || !projectSlug) return;
+    if (activeTab !== "setup") return;
 
     async function fetchApiKeys() {
       try {
@@ -64,10 +64,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
     framework?: FrameworkId;
   }) => {
     try {
-      const url = projectSlug
-        ? `/api/projects/${projectSlug}/apps/${appSlug}`
-        : `/api/apps/${appSlug}`;
-      const res = await fetch(url, {
+      const res = await fetch(`/api/projects/${projectSlug}/apps/${appSlug}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -83,10 +80,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
       showToast("success", "App updated successfully");
 
       if (updated.slug && updated.slug !== appSlug) {
-        const baseUrl = projectSlug
-          ? `/projects/${projectSlug}/apps/${updated.slug}/settings`
-          : `/apps/${updated.slug}/settings`;
-        router.replace(`${baseUrl}/${activeTab}`);
+        router.replace(`/projects/${projectSlug}/apps/${updated.slug}/settings/${activeTab}`);
       }
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to update app");
@@ -95,10 +89,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
 
   const handleDeleteApp = async () => {
     try {
-      const url = projectSlug
-        ? `/api/projects/${projectSlug}/apps/${appSlug}`
-        : `/api/apps/${appSlug}`;
-      const res = await fetch(url, {
+      const res = await fetch(`/api/projects/${projectSlug}/apps/${appSlug}`, {
         method: "DELETE",
       });
 
@@ -107,7 +98,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
         throw new Error(data.error || "Failed to delete app");
       }
 
-      router.push(projectSlug ? `/projects/${projectSlug}` : "/apps");
+      router.push(`/projects/${projectSlug}`);
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to delete app");
     }
@@ -161,7 +152,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
               onDelete={handleDeleteApp}
             />
           )}
-          {activeTab === "setup" && localApp && projectSlug && (
+          {activeTab === "setup" && localApp && (
             <div className="settings-section-content">
               <AppSetupGuide
                 appName={localApp.name}

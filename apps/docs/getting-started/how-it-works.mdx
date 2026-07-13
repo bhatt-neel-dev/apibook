@@ -1,0 +1,43 @@
+---
+title: "How it works"
+description: "What the SDK actually does inside your service, and what happens to your data after it leaves."
+---
+
+APILens integrates through a lightweight middleware provided by our SDKs. There is no agent to install, no sidecar to run, and no proxy in front of your API. If APILens is ever unreachable, your API is unaffected — telemetry is queued, retried, and eventually dropped, never raised into your application.
+
+## Inside your service
+
+<Steps>
+  <Step title="Capture">
+    The middleware wraps each request and records timing, method, path, status code, sizes, client IP, user agent, and (by default) headers and bodies. Recording is synchronous but only *enqueues* — nothing blocks on the network in the request path.
+  </Step>
+  <Step title="Trace">
+    Every request opens a root span. If an inbound `traceparent` header is present, the trace is continued (so calls that hop between your services stitch into one trace). Outbound `requests`/`httpx` calls become child spans and propagate `traceparent` downstream automatically.
+  </Step>
+  <Step title="Batch and ship">
+    A single daemon thread drains three queues — requests, spans, and error logs — and POSTs them as JSON batches to `ingest.apilens.ai`. Batches flush every **3 seconds**, or immediately once **200 records** accumulate.
+  </Step>
+</Steps>
+
+## Resilience guarantees
+
+The client is deliberately boring about failure:
+
+- **Retries**: failed batches retry up to 3 times with exponential backoff (0.25 s → 5 s cap). Client errors other than 429 are not retried.
+- **Backpressure**: each queue holds at most 10,000 records; when full, the *oldest* record is dropped and a counter increments. Memory use is bounded.
+- **Isolation**: transport uses the Python standard library only. The SDK's two runtime dependencies are the OpenTelemetry API and SDK.
+- **Shutdown**: the client flushes remaining records on interpreter exit (and when used as a context manager).
+
+## After ingest
+
+The ingest service validates your API key (project-level, verified against our identity service and cached for 60 seconds), then writes telemetry to ClickHouse and endpoint metadata to Postgres. Metrics typically appear on the dashboard within a few seconds of the SDK's next flush.
+
+The dashboard itself stays current by polling: pages like Traffic re-query every ~5 seconds with a rolling time window while the tab is visible, so during an incident the chart moves without you touching anything.
+
+## Endpoint discovery and path templating
+
+You never register endpoints. The SDK reports each request's path as its **route template** — `/products/{product_id}` rather than `/products/42` — using your framework's actual matched route where possible, and a heuristic fallback (numeric IDs, UUIDs, hashes) everywhere else. The exact URL is preserved separately as `raw_path` and shown in the request log. Details in [Path templating](/sdk-reference/path-templating).
+
+<Note>
+Sending telemetry from a stack without an SDK? The [Ingest API](/ingest/ingest-api) is three plain JSON endpoints — everything above still applies from ingest onward.
+</Note>

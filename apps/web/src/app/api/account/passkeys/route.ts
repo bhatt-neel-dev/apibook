@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { fetchWithRefresh } from "@/lib/proxy";
 
 // Auth/identity calls go to the identity service (AUTH_API_URL); default
 // falls back to the core API's /auth path so local dev is unchanged.
@@ -14,11 +15,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const response = await fetch(`${AUTH_API_URL}/passkey/credentials`, {
+    const response = await fetchWithRefresh(`${AUTH_API_URL}/passkey/credentials`, session, {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-      },
     });
 
     const data = await response.json();

@@ -1,0 +1,52 @@
+---
+title: "Litestar"
+description: "Monitor a Litestar application with the APILens plugin."
+---
+
+## Install
+
+```bash
+pip install "apilenss[litestar]"
+```
+
+<Info>
+Requires Python ≥ 3.10 and Litestar ≥ 2.0. APILens integrates as a Litestar **plugin** rather than raw middleware, and resolves route templates from the matched route handler.
+</Info>
+
+## Add the plugin
+
+```python
+import os
+from litestar import Litestar
+from apilens import ApiLensClient, ApiLensConfig, ApiLensPlugin
+
+client = ApiLensClient(ApiLensConfig(api_key=os.environ["APILENS_API_KEY"]))
+
+app = Litestar(
+    route_handlers=[...],
+    plugins=[ApiLensPlugin(client=client, app_id="catalog-api")],
+)
+```
+
+`ApiLensPlugin` also accepts `environment`, `capture_spans`, `service_name`, and `project_slug`.
+
+## Identify consumers
+
+Call `set_consumer` from a handler, dependency, or middleware once the caller is known:
+
+```python
+from apilens.starlette import set_consumer  # works for any ASGI request object
+
+@get("/orders")
+async def list_orders(request: Request) -> list[Order]:
+    set_consumer(request, identifier=request.user.id, group=request.user.tier)
+    ...
+```
+
+## Tune capture
+
+Client behavior (batching, retries, TLS, kill switch) is set on `ApiLensConfig`; capture options on the underlying middleware. Everything is listed in the [Python configuration reference](/sdk-reference/python-configuration).
+
+<Note>
+Litestar isn't in the dashboard's framework picker yet — choose the closest option (or FastAPI) when creating the app; it only affects the snippet the setup wizard displays, not how data is processed.
+</Note>

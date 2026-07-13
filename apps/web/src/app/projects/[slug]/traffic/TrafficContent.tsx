@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Area,
   AreaChart,
@@ -12,6 +12,11 @@ import {
   YAxis,
 } from "recharts";
 import { Check, ChevronDown, ChevronRight, MoreVertical, RefreshCw, Search, X } from "lucide-react";
+import Pagination from "@/components/aperture/Pagination";
+import LiveNumber from "@/components/aperture/LiveNumber";
+import LiveIndicator from "@/components/aperture/LiveIndicator";
+import { useLivePoll } from "@/lib/useLivePoll";
+import { fmtNum, fmtCompact, fmtBytes, dataBytes } from "@/lib/format";
 import {
   type RangeValue,
   parseRange,
@@ -28,6 +33,10 @@ interface Summary {
   total_requests: number;
   error_count: number;
   error_rate: number;
+  client_error_rate?: number;
+  server_error_rate?: number;
+  client_error_count?: number;
+  server_error_count?: number;
   avg_response_time_ms: number;
   p95_response_time_ms: number;
   total_request_bytes: number;
@@ -41,11 +50,15 @@ interface TSPoint {
   total_requests: number;
   error_count: number;
   error_rate: number;
+  client_error_rate?: number;
+  server_error_rate?: number;
+  client_error_count?: number;
+  server_error_count?: number;
   total_request_bytes: number;
   total_response_bytes: number;
 }
 
-type MetricKey = "requests" | "rpm" | "errors" | "data";
+type MetricKey = "requests" | "rpm" | "data" | "clientErr" | "serverErr" | "totalErr";
 
 interface EndpointStat {
   method: string;
@@ -53,12 +66,22 @@ interface EndpointStat {
   total_requests: number;
   error_count: number;
   error_rate: number;
+  client_error_rate?: number;
+  server_error_rate?: number;
+  client_error_count?: number;
+  server_error_count?: number;
   total_request_bytes?: number;
   total_response_bytes?: number;
 }
 
+// Paginated shape returned by the endpoints analytics route.
+interface EndpointsPage {
+  items: EndpointStat[];
+  total_count: number;
+}
+
 type AppOption = { id: string; name: string; slug: string };
-type SortKey = "total_requests" | "error_rate" | "data";
+type SortKey = "total_requests" | "client_error_rate" | "server_error_rate" | "error_rate" | "data";
 
 // Filters seeded from the URL query (read server-side in page.tsx) so a refresh
 // or shared link restores the exact view.
@@ -72,6 +95,8 @@ interface InitialFilters {
   sort?: string;
   consumer?: string;
   filter?: string;
+  ep_method?: string;
+  ep_path?: string;
 }
 
 // Migrate legacy ?env= / ?consumer= links into the unified filter string.
@@ -98,29 +123,17 @@ const EMPTY_SUMMARY: Summary = {
 // neon green/red defaults, which read "too sharp" on the dark surfaces.
 const ACCENT = "#14b8a6";
 const GREEN = "#10b981"; // emerald — harmonises with the teal accent
-const RED = "#f87171"; // soft red — matches the "bad" text tone elsewhere
+const RED = "#f87171"; // server 5xx / errors — soft red
+const AMBER = "#fca5a5"; // client 4xx — light red
 const GRID = "rgba(148,163,184,0.12)";
 const AXIS = { fontSize: 10, fill: "var(--text-muted)" } as const;
 // Static bar heights (%) for the chart loading skeleton.
 const SKELETON_BARS = [58, 80, 46, 88, 62, 74, 52, 90, 66, 78, 48, 84];
+// Endpoint rows per page — the page is fetched from the server on demand.
+const EP_PAGE_SIZE = 25;
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
-function fmtNum(n: number): string {
-  return Math.round(n || 0).toLocaleString();
-}
-function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return `${Math.round(n)}`;
-}
-function fmtBytes(b: number): string {
-  if (!b) return "0 B";
-  if (b < 1024) return `${Math.round(b)} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
 function bucketLabel(b: string, rangeHours: number): string {
   const d = new Date(b);
   if (isNaN(d.getTime())) return b;
@@ -136,9 +149,6 @@ function bucketTipLabel(b: string, rangeHours: number): string {
   }
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
-function dataBytes(s: { total_request_bytes?: number; total_response_bytes?: number }): number {
-  return (s.total_request_bytes || 0) + (s.total_response_bytes || 0);
-}
 function methodColor(m: string): string {
   const k = m.toUpperCase();
   if (k === "GET") return "ep-method-get";
@@ -147,11 +157,6 @@ function methodColor(m: string): string {
   if (k === "PATCH") return "ep-method-patch";
   if (k === "DELETE") return "ep-method-delete";
   return "ep-method-other";
-}
-function errToneClass(errRate: number): string {
-  if (errRate >= 5) return "tf-err-bad";
-  if (errRate >= 1) return "tf-err-warn";
-  return "";
 }
 
 /* ── Component ───────────────────────────────────────────────────────── */
@@ -172,26 +177,53 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
 
   const [rangeValue, setRangeValue] = useState<RangeValue>(() => parseRange(initialFilters));
   const [sortKey, setSortKey] = useState<SortKey>(() =>
-    initialFilters?.sort === "error_rate" || initialFilters?.sort === "data"
-      ? initialFilters.sort
+    initialFilters?.sort === "client_error_rate" ||
+    initialFilters?.sort === "server_error_rate" ||
+    initialFilters?.sort === "error_rate" ||
+    initialFilters?.sort === "data"
+      ? (initialFilters.sort as SortKey)
       : "total_requests"
   );
   const [activeMetric, setActiveMetric] = useState<MetricKey>(() =>
-    initialFilters?.metric === "rpm" || initialFilters?.metric === "errors" || initialFilters?.metric === "data"
-      ? initialFilters.metric
+    initialFilters?.metric === "rpm" ||
+    initialFilters?.metric === "totalErr" ||
+    initialFilters?.metric === "clientErr" ||
+    initialFilters?.metric === "serverErr" ||
+    initialFilters?.metric === "data"
+      ? (initialFilters.metric as MetricKey)
       : "requests"
   );
+  // Legend toggle: which stacked series are hidden (click a legend chip to
+  // isolate, e.g. show only 4xx or only 5xx on the Total errors chart).
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(() => new Set());
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Endpoint table: client-side search, the open detail slide-over, and the
-  // per-row kebab menu (keyed by `${method}-${path}`).
+  // Endpoint table: the search box, the open detail slide-over, and the
+  // per-row kebab menu (keyed by `${method}-${path}`). Search, sort and paging
+  // are all resolved server-side, so we only ever hold the current page's rows.
   const [endpointSearch, setEndpointSearch] = useState("");
-  const [openRow, setOpenRow] = useState<EndpointStat | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Seed the open detail from the URL so an endpoint-detail link is shareable:
+  // ?ep_method=GET&ep_path=/product/{id} reopens that endpoint on load.
+  const [openRow, setOpenRow] = useState<EndpointStat | null>(() =>
+    initialFilters?.ep_method && initialFilters?.ep_path
+      ? {
+          method: initialFilters.ep_method.toUpperCase(),
+          path: initialFilters.ep_path,
+          total_requests: 0,
+          error_count: 0,
+          error_rate: 0,
+        }
+      : null
+  );
   const [kebabRow, setKebabRow] = useState<string | null>(null);
+  const [endpointPage, setEndpointPage] = useState(1);
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [series, setSeries] = useState<TSPoint[] | null>(null);
   const [endpoints, setEndpoints] = useState<EndpointStat[]>([]);
+  const [endpointTotal, setEndpointTotal] = useState(0);
+  const [endpointsLoading, setEndpointsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
 
   // Recharts logs "width(-1)/height(-1)" if its ResponsiveContainer mounts
@@ -234,9 +266,14 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
     if (filter) p.set("filter", filter);
     if (activeMetric !== "requests") p.set("metric", activeMetric);
     if (sortKey !== "total_requests") p.set("sort", sortKey);
+    // Reflect the open endpoint-detail so the link is shareable / deep-linkable.
+    if (openRow) {
+      p.set("ep_method", openRow.method);
+      p.set("ep_path", openRow.path);
+    }
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [appsLoaded, rangeValue, apps.length, selectedAppSlugs, filter, activeMetric, sortKey]);
+  }, [appsLoaded, rangeValue, apps.length, selectedAppSlugs, filter, activeMetric, sortKey, openRow]);
 
   // Fetch apps + environments
   useEffect(() => {
@@ -271,72 +308,147 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
     })();
   }, [projectSlug]);
 
-  // Build the shared query string for the active filters.
-  const buildQuery = useCallback(
-    (extra?: Record<string, string>) => {
+  // One fetch routine for both the initial/filtered load (silent=false → shows
+  // skeletons) and the live poll (silent=true → swaps numbers in place). A
+  // request-id guard drops stale responses so an in-flight poll never clobbers
+  // a newer filter change.
+  const reqId = useRef(0);
+  const loadData = useCallback(
+    async (silent: boolean) => {
+      if (!appsLoaded) return;
+      // Nothing selected → empty state, skip the network round-trip.
+      if (apps.length > 0 && selectedAppSlugs.length === 0) {
+        setSummary(EMPTY_SUMMARY);
+        setSeries([]);
+        setLoading(false);
+        return;
+      }
+
+      // Resolve the range *at fetch time* so a rolling window (e.g. "last 24h")
+      // slides forward on every poll. If we froze `until` at mount, new requests
+      // would land past it and the live numbers would never climb.
+      const { since: qSince, until: qUntil } = resolveRange(rangeValue);
+      const buildQuery = (extra?: Record<string, string>) => {
+        const p = new URLSearchParams();
+        // Omit app_slugs when every app is selected — that's the aggregate view.
+        if (selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
+          p.set("app_slugs", selectedAppSlugs.join(","));
+        } else if (selectedAppSlugs.length && apps.length === 0) {
+          p.set("app_slugs", selectedAppSlugs.join(","));
+        }
+        p.set("since", qSince);
+        p.set("until", qUntil);
+        if (filter) p.set("filter", filter);
+        for (const [k, v] of Object.entries(extra || {})) p.set(k, v);
+        return p.toString();
+      };
+
+      const get = async <T,>(path: string, qs: string, fallback: T): Promise<T> => {
+        try {
+          const res = await fetch(`/api/projects/${projectSlug}/analytics/${path}?${qs}`);
+          return res.ok ? ((await res.json()) as T) : fallback;
+        } catch {
+          return fallback;
+        }
+      };
+
+      const myId = ++reqId.current;
+      if (!silent) setLoading(true);
+      const baseQs = buildQuery();
+      const [sum, ts] = await Promise.all([
+        get<Summary>("summary", baseQs, EMPTY_SUMMARY),
+        get<TSPoint[]>("timeseries", baseQs, []),
+      ]);
+      // A newer request (filter change or a later poll) has superseded this one.
+      if (myId !== reqId.current) return;
+      setSummary(sum);
+      setSeries(Array.isArray(ts) ? ts : []);
+      if (!silent) setLoading(false);
+    },
+    [projectSlug, appsLoaded, apps.length, selectedAppSlugs, rangeValue, filter]
+  );
+
+  // Endpoints table: server-side search + sort + pagination. Fetches ONLY the
+  // page in view, so navigating pages (or the 5s live poll) transfers 25 rows
+  // instead of the whole endpoint set. Its own request-id guard keeps a slow
+  // page fetch from clobbering a newer one.
+  const epReqId = useRef(0);
+  const loadEndpoints = useCallback(
+    async (silent: boolean) => {
+      if (!appsLoaded) return;
+      if (apps.length > 0 && selectedAppSlugs.length === 0) {
+        setEndpoints([]);
+        setEndpointTotal(0);
+        setEndpointsLoading(false);
+        return;
+      }
+      const { since: qSince, until: qUntil } = resolveRange(rangeValue);
       const p = new URLSearchParams();
-      // Omit app_slugs when every app is selected — that's the aggregate view.
       if (selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
         p.set("app_slugs", selectedAppSlugs.join(","));
       } else if (selectedAppSlugs.length && apps.length === 0) {
         p.set("app_slugs", selectedAppSlugs.join(","));
       }
-      p.set("since", since);
-      p.set("until", until);
+      p.set("since", qSince);
+      p.set("until", qUntil);
       if (filter) p.set("filter", filter);
-      for (const [k, v] of Object.entries(extra || {})) p.set(k, v);
-      return p.toString();
+      p.set("page", String(endpointPage));
+      p.set("page_size", String(EP_PAGE_SIZE));
+      p.set("sort_by", sortKey);
+      p.set("sort_dir", "desc");
+      if (debouncedSearch) p.set("q", debouncedSearch);
+
+      const myId = ++epReqId.current;
+      if (!silent) setEndpointsLoading(true);
+      const empty: EndpointsPage = { items: [], total_count: 0 };
+      let data: EndpointsPage = empty;
+      try {
+        const res = await fetch(`/api/projects/${projectSlug}/analytics/endpoints?${p.toString()}`);
+        data = res.ok ? ((await res.json()) as EndpointsPage) : empty;
+      } catch {
+        data = empty;
+      }
+      if (myId !== epReqId.current) return;
+      setEndpoints(data.items || []);
+      setEndpointTotal(data.total_count || 0);
+      if (!silent) setEndpointsLoading(false);
     },
-    [selectedAppSlugs, apps.length, since, until, filter]
+    [projectSlug, appsLoaded, apps.length, selectedAppSlugs, rangeValue, filter, endpointPage, sortKey, debouncedSearch]
   );
 
-
-  // Fetch summary + timeseries + endpoints whenever filters change.
+  // Initial load + reload on any filter/range change or manual refresh.
   useEffect(() => {
-    if (!appsLoaded) return;
-    // Nothing selected → empty state, skip the network round-trip.
-    if (apps.length > 0 && selectedAppSlugs.length === 0) {
-      setSummary(EMPTY_SUMMARY);
-      setSeries([]);
-      setEndpoints([]);
-      setLoading(false);
-      return;
-    }
+    loadData(false);
+  }, [loadData, refreshKey]);
+  useEffect(() => {
+    loadEndpoints(false);
+  }, [loadEndpoints, refreshKey]);
 
-    let cancelled = false;
-    const get = async <T,>(path: string, qs: string, fallback: T): Promise<T> => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/${path}?${qs}`);
-        return res.ok ? ((await res.json()) as T) : fallback;
-      } catch {
-        return fallback;
-      }
-    };
+  // Debounce the search box so typing fires at most one request per pause.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(endpointSearch.trim()), 300);
+    return () => clearTimeout(t);
+  }, [endpointSearch]);
 
-    (async () => {
-      setLoading(true);
-      const baseQs = buildQuery();
-      const [sum, ts, eps] = await Promise.all([
-        get<Summary>("summary", baseQs, EMPTY_SUMMARY),
-        get<TSPoint[]>("timeseries", baseQs, []),
-        get<{ items?: EndpointStat[] } | EndpointStat[]>(
-          "endpoints",
-          buildQuery({ limit: "500" }),
-          []
-        ),
-      ]);
-      if (cancelled) return;
-      setSummary(sum);
-      setSeries(Array.isArray(ts) ? ts : []);
-      const items = Array.isArray(eps) ? eps : eps.items || [];
-      setEndpoints(items);
-      setLoading(false);
-    })();
+  // Jump back to page 1 whenever the query that defines the list changes, so we
+  // never sit on a page that no longer exists.
+  useEffect(() => {
+    setEndpointPage(1);
+  }, [debouncedSearch, sortKey, filter, selectedAppSlugs, rangeValue]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [projectSlug, appsLoaded, apps.length, selectedAppSlugs, buildQuery, refreshKey]);
+  // Live polling: silently refetch every 5s, sliding the rolling window and
+  // rolling the numbers in place. Auto-pauses when the tab is hidden.
+  const poll = useLivePoll({
+    intervalMs: 5000,
+    onTick: () => {
+      loadData(true);
+      // Only live-refresh the endpoints table while on page 1. Deeper pages are
+      // a historical slice the user is inspecting — re-fetching them every 5s
+      // would spend a count + aggregate query for rows that aren't changing.
+      if (endpointPage === 1) loadEndpoints(true);
+    },
+    deps: [loadData, loadEndpoints],
+  });
 
   const cur = summary || EMPTY_SUMMARY;
   const rpm = cur.total_requests / Math.max(1, spanHours * 60);
@@ -347,8 +459,12 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
     // span or the per-minute series is off by 24× on daily buckets.
     const bucketMinutes = spanHours <= 48 ? 60 : 1440;
     return (series || []).map((p) => {
-        const errors = p.error_count || 0;
-        const success = Math.max(0, (p.total_requests || 0) - errors);
+        const total = p.total_requests || 0;
+        // Split by status class: 4xx (client) and 5xx (server) come straight
+        // from the backend; everything else (2xx/3xx) is "success".
+        const client = p.client_error_count || 0;
+        const server = p.server_error_count || 0;
+        const success = Math.max(0, total - client - server);
         return {
           // The raw bucket is the X-axis category — it's unique per point, so
           // bars stay aligned and the tooltip resolves to the hovered bar.
@@ -356,11 +472,13 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
           // which misaligns bars and shows the wrong bar's numbers on hover.)
           bucket: p.bucket,
           label: bucketLabel(p.bucket, spanHours),
-          reqSuccess: success,
-          reqErrors: errors,
-          rpmSuccess: Number((success / bucketMinutes).toFixed(2)),
-          rpmErrors: Number((errors / bucketMinutes).toFixed(2)),
-          rate: Number((p.error_rate || 0).toFixed(2)),
+          success,           // 2xx/3xx
+          client,            // 4xx
+          server,            // 5xx
+          rpm: Number((total / bucketMinutes).toFixed(2)),
+          clientRate: Number((p.client_error_rate || 0).toFixed(2)),
+          serverRate: Number((p.server_error_rate || 0).toFixed(2)),
+          totalRate: Number((p.error_rate || 0).toFixed(2)),
           bytes: (p.total_request_bytes || 0) + (p.total_response_bytes || 0),
         };
       });
@@ -369,42 +487,102 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   // Per-metric config: drives the active tab highlight AND the shared chart.
   // "stack" metrics render success (green) + errors (red) stacked per bucket;
   // "area" metrics render a single filled series.
-  const errTone = cur.error_rate >= 5 ? "bad" : cur.error_rate >= 1 ? "warn" : undefined;
+  const toneFor = (r: number): "warn" | "bad" | undefined => (r >= 5 ? "bad" : r >= 1 ? "warn" : undefined);
+  const clientRate = cur.client_error_rate || 0;
+  const serverRate = cur.server_error_rate || 0;
+  const totalRate = cur.error_rate || 0;
+  // `num`/`fmt` feed the live odometer (raw value + a formatter that exactly
+  // reproduces the tile string); `invert` flags metrics where lower is better,
+  // so a drop flashes green. `value` stays for any non-live fallback.
+  type MetricBase = {
+    label: string;
+    value: string;
+    num: number;
+    fmt: (v: number) => string;
+    invert?: boolean;
+    tone?: "warn" | "bad";
+    fmtY: (v: number) => string;
+    fmtVal: (v: number) => string;
+  };
+  type StackSeries = { key: string; name: string; color: string; pct?: number };
   const METRICS: Record<
     MetricKey,
-    | { label: string; value: string; tone?: "warn" | "bad"; kind: "stack"; successKey: string; errorKey: string; fmtY: (v: number) => string; fmtVal: (v: number) => string }
-    | { label: string; value: string; tone?: "warn" | "bad"; kind: "area"; dataKey: string; color: string; fmtY: (v: number) => string; fmtVal: (v: number) => string }
+    | (MetricBase & { kind: "stack"; series: StackSeries[] })
+    | (MetricBase & { kind: "area"; dataKey: string; color: string })
   > = {
-    requests: { label: "Total requests", value: fmtNum(cur.total_requests), kind: "stack", successKey: "reqSuccess", errorKey: "reqErrors", fmtY: fmtCompact, fmtVal: fmtNum },
-    rpm: { label: "Requests per minute", value: rpm.toFixed(2), kind: "stack", successKey: "rpmSuccess", errorKey: "rpmErrors", fmtY: (v) => `${v}`, fmtVal: (v) => v.toFixed(2) },
-    errors: { label: "Error rate", value: `${cur.error_rate.toFixed(1)} %`, tone: errTone, kind: "area", dataKey: "rate", color: RED, fmtY: (v) => `${v}%`, fmtVal: (v) => `${v}%` },
-    data: { label: "Data transferred", value: fmtBytes(dataBytes(cur)), kind: "area", dataKey: "bytes", color: ACCENT, fmtY: fmtBytes, fmtVal: fmtBytes },
+    // Total requests → Success (green, 2xx/3xx) / 4xx (amber) / 5xx (red) stacked (issue #146).
+    requests: {
+      label: "Total requests", value: fmtNum(cur.total_requests), num: cur.total_requests, fmt: fmtNum,
+      kind: "stack", fmtY: fmtCompact, fmtVal: fmtNum,
+      series: [
+        { key: "success", name: "Success", color: GREEN },
+        { key: "client", name: "4xx", color: AMBER },
+        { key: "server", name: "5xx", color: RED },
+      ],
+    },
+    // RPM → area chart (issue #146).
+    rpm: { label: "Requests per minute", value: rpm.toFixed(2), num: rpm, fmt: (v) => v.toFixed(2), kind: "area", dataKey: "rpm", color: ACCENT, fmtY: (v) => `${v}`, fmtVal: (v) => v.toFixed(2) },
+    data: { label: "Data transferred", value: fmtBytes(dataBytes(cur)), num: dataBytes(cur), fmt: fmtBytes, kind: "area", dataKey: "bytes", color: ACCENT, fmtY: fmtBytes, fmtVal: fmtBytes },
+    // 4xx / 5xx rates get their own tabs as single-series area charts; the
+    // combined Total errors tab below keeps the stacked view.
+    clientErr: {
+      label: "4xx errors", value: `${clientRate.toFixed(1)} %`, num: clientRate, fmt: (v) => `${v.toFixed(1)} %`, invert: true, tone: toneFor(clientRate),
+      kind: "area", dataKey: "clientRate", color: AMBER, fmtY: (v) => `${v}%`, fmtVal: (v) => `${v}%`,
+    },
+    serverErr: {
+      label: "5xx errors", value: `${serverRate.toFixed(1)} %`, num: serverRate, fmt: (v) => `${v.toFixed(1)} %`, invert: true, tone: toneFor(serverRate),
+      kind: "area", dataKey: "serverRate", color: RED, fmtY: (v) => `${v}%`, fmtVal: (v) => `${v}%`,
+    },
+    // Total errors → 4xx (amber) / 5xx (red) stacked. Stacking the two rates
+    // sums to the total error rate, so units match the tile (issue #146).
+    totalErr: {
+      label: "Total errors", value: `${totalRate.toFixed(1)} %`, num: totalRate, fmt: (v) => `${v.toFixed(1)} %`, invert: true, tone: toneFor(totalRate),
+      kind: "stack", fmtY: (v) => `${v}%`, fmtVal: (v) => `${v}%`,
+      series: [
+        { key: "clientRate", name: "4xx", color: AMBER, pct: clientRate },
+        { key: "serverRate", name: "5xx", color: RED, pct: serverRate },
+      ],
+    },
   };
   const active = METRICS[activeMetric];
 
-  const sortedEndpoints = useMemo(() => {
-    const val = (r: EndpointStat): number => {
-      if (sortKey === "data") return dataBytes(r);
-      if (sortKey === "error_rate") return r.error_rate || 0;
-      return r.total_requests || 0;
-    };
-    return [...endpoints].sort((a, b) => val(b) - val(a));
-  }, [endpoints, sortKey]);
+  // Legend interaction for stacked charts: the visible series after toggles,
+  // and a click handler that hides/shows a series (never hides the last one).
+  const stackSeries = active.kind === "stack" ? active.series : [];
+  const visibleSeries = stackSeries.filter((s) => !hiddenSeries.has(s.key));
+  const toggleSeries = useCallback((key: string) => {
+    setHiddenSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else if (visibleSeries.length > 1) {
+        // Keep at least one series visible so the chart never goes blank.
+        next.add(key);
+      }
+      return next;
+    });
+  }, [visibleSeries.length]);
+  const selectMetric = useCallback((key: MetricKey) => {
+    setActiveMetric(key);
+    setHiddenSeries(new Set()); // switching tabs shows all series again
+  }, []);
 
-  // Client-side endpoint filter (method or path). Bars stay scaled to the full
-  // set's max so widths don't jump as you type.
-  const filteredEndpoints = useMemo(() => {
-    const q = endpointSearch.trim().toLowerCase();
-    if (!q) return sortedEndpoints;
-    return sortedEndpoints.filter(
-      (r) => r.path.toLowerCase().includes(q) || r.method.toLowerCase().includes(q)
-    );
-  }, [sortedEndpoints, endpointSearch]);
-
+  // Request bars scale to the current page's busiest endpoint. (With the
+  // default requests-desc sort, page 1's top row is the global max.)
   const maxRequests = useMemo(
     () => Math.max(1, ...endpoints.map((r) => r.total_requests)),
     [endpoints]
   );
+
+  // Paging is server-side: totalPages derives from the server's total_count and
+  // `endpoints` already holds exactly the current page's rows.
+  const totalPages = Math.max(1, Math.ceil(endpointTotal / EP_PAGE_SIZE));
+  const currentPage = Math.min(endpointPage, totalPages);
+  // If the total shrank under us (e.g. a narrower search), fall onto the last
+  // still-valid page rather than showing an empty one.
+  useEffect(() => {
+    if (endpointPage > totalPages) setEndpointPage(totalPages);
+  }, [endpointPage, totalPages]);
 
   // Close the per-row kebab menu on any outside click.
   useEffect(() => {
@@ -438,29 +616,27 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
 
   return (
     <div className="tf">
-      {/* ── Toolbar ── */}
+      {/* ── Toolbar: filter search + scope/time controls on one line ── */}
       <div className="tf-toolbar">
-        <h1 className="tf-title">Traffic</h1>
-        <div className="tf-toolbar-spacer" />
+        <div className="tf-filter-grow">
+          <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["app"]} />
+        </div>
 
         <AppFilter apps={apps} selected={selectedAppSlugs} onChange={setSelectedAppSlugs} />
 
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
+        <LiveIndicator live={poll.live} onToggle={poll.toggle} lastTickAt={poll.lastTickAt} />
+
         <button
           type="button"
           className="tf-refresh"
           onClick={() => setRefreshKey((k) => k + 1)}
-          title="Refresh"
-          aria-label="Refresh"
+          title="Refresh now"
+          aria-label="Refresh now"
         >
           <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
         </button>
-      </div>
-
-      {/* Full-width rich filter row (app scope lives in the AppFilter above). */}
-      <div className="ep-rl-filterrow">
-        <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["app"]} />
       </div>
 
       {/* ── Metrics + chart (metrics are tabs that drive the chart) ── */}
@@ -476,10 +652,22 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 role="tab"
                 aria-selected={isActive}
                 className={`tf-metric${isActive ? " active" : ""}${m.tone ? ` tf-metric-${m.tone}` : ""}`}
-                onClick={() => setActiveMetric(key)}
+                onClick={() => selectMetric(key)}
               >
-                <span className="tf-metric-label">{m.label}</span>
-                <span className="tf-metric-value">{loading ? "—" : m.value}</span>
+                <span className="tf-metric-labelrow">
+                  <span className="tf-metric-label">{m.label}</span>
+                  {/* Total errors: subtle 4xx / 5xx caption in the label row, so
+                      the tile keeps the same height and the number stays clean. */}
+                  {key === "totalErr" && !loading && (
+                    <span className="tf-metric-breakdown">
+                      <span className="err-4xx">4xx {clientRate.toFixed(1)}%</span>
+                      <span className="err-5xx">5xx {serverRate.toFixed(1)}%</span>
+                    </span>
+                  )}
+                </span>
+                <span className="tf-metric-value">
+                  {loading ? "—" : <LiveNumber value={m.num} format={m.fmt} invertTone={m.invert} />}
+                </span>
               </button>
             );
           })}
@@ -488,8 +676,30 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         <div className="tf-panel-chart">
           {!loading && chartData.length > 0 && active.kind === "stack" && (
             <div className="tf-legend">
-              <span className="tf-legend-item"><span className="tf-legend-dot" style={{ background: GREEN }} />Success</span>
-              <span className="tf-legend-item"><span className="tf-legend-dot" style={{ background: RED }} />Errors</span>
+              {active.series.map((s, idx) => {
+                const hidden = hiddenSeries.has(s.key);
+                return (
+                  <Fragment key={s.key}>
+                    {/* "4xx + 5xx = total" breakdown on the Total errors chart. */}
+                    {idx > 0 && active.series.every((x) => x.pct !== undefined) && (
+                      <span className="tf-legend-op">+</span>
+                    )}
+                    <button
+                      type="button"
+                      className={`tf-legend-item tf-legend-toggle${hidden ? " is-off" : ""}`}
+                      onClick={() => toggleSeries(s.key)}
+                      aria-pressed={!hidden}
+                      title={hidden ? `Show ${s.name}` : `Show only the others — hide ${s.name}`}
+                    >
+                      <span className="tf-legend-dot" style={{ background: hidden ? "transparent" : s.color, borderColor: s.color }} />
+                      {s.name}{s.pct !== undefined ? ` ${s.pct.toFixed(1)}%` : ""}
+                    </button>
+                  </Fragment>
+                );
+              })}
+              {active.series.every((s) => s.pct !== undefined) && (
+                <span className="tf-legend-total">= Total {totalRate.toFixed(1)}%</span>
+              )}
             </div>
           )}
           {/* We measure the stage ourselves (stageWidth) and pass concrete
@@ -497,22 +707,35 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
               ResponsiveContainer — that container always initialises its size
               to -1 on mount and logs a "width(-1)" warning before its observer
               fires. Driving width from our ResizeObserver keeps it responsive
-              with no warning. key={active.kind} only remounts on bar↔area;
-              same-type metric switches animate in place. */}
+              with no warning. key={activeMetric} remounts the chart on every
+              tab switch — recharts keeps rendering the previous series if only
+              the Area/Bar dataKey changes without a new key, so the chart must
+              remount to stay in sync with the active tab. */}
           <div ref={stageRef} className="tf-chart-stage" style={{ height: 220, width: "100%", minWidth: 0 }}>
             {!loading && chartData.length === 0 ? (
               <div className="tf-empty" style={{ height: "100%" }}>No traffic in this period.</div>
             ) : stageWidth === 0 ? null : active.kind === "stack" ? (
-              <BarChart key="stack" width={stageWidth} height={220} data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }} barCategoryGap="18%">
+              <BarChart key={`stack-${activeMetric}-${visibleSeries.map((s) => s.key).join("")}`} width={stageWidth} height={220} data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }} barCategoryGap="18%">
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="bucket" tickFormatter={(b) => bucketLabel(b, spanHours)} tick={AXIS} minTickGap={24} tickLine={false} axisLine={{ stroke: GRID }} />
                 <YAxis tick={AXIS} width={48} tickFormatter={active.fmtY} tickLine={false} axisLine={false} />
                 <Tooltip content={<TfTooltip kind="stack" fmtVal={active.fmtVal} spanHours={spanHours} />} cursor={{ fill: "rgba(148,163,184,0.08)" }} />
-                <Bar dataKey={active.successKey} name="Success" stackId="t" fill={GREEN} maxBarSize={30} animationDuration={300} />
-                <Bar dataKey={active.errorKey} name="Errors" stackId="t" fill={RED} radius={[2, 2, 0, 0]} maxBarSize={30} animationDuration={300} />
+                {visibleSeries.map((s, i) => (
+                  <Bar
+                    key={s.key}
+                    dataKey={s.key}
+                    name={s.name}
+                    stackId="t"
+                    fill={s.color}
+                    // Round only the topmost visible segment of each stacked bar.
+                    radius={i === visibleSeries.length - 1 ? [2, 2, 0, 0] : undefined}
+                    maxBarSize={30}
+                    animationDuration={300}
+                  />
+                ))}
               </BarChart>
             ) : (
-              <AreaChart key="area" width={stageWidth} height={220} data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
+              <AreaChart key={`area-${activeMetric}`} width={stageWidth} height={220} data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
                 <defs>
                   <linearGradient id={`tfArea-${activeMetric}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={active.color} stopOpacity={0.3} />
@@ -562,7 +785,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         </div>
 
         <div className="tf-table-wrap">
-          {loading ? (
+          {endpointsLoading ? (
             <div className="tf-table-skeleton" aria-hidden>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="tf-skeleton-row">
@@ -572,11 +795,11 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 </div>
               ))}
             </div>
-          ) : filteredEndpoints.length === 0 ? (
+          ) : endpoints.length === 0 ? (
             <div className="tf-list-message">
-              {endpoints.length === 0
-                ? "No endpoint activity in this period."
-                : "No endpoints match this search."}
+              {debouncedSearch
+                ? "No endpoints match this search."
+                : "No endpoint activity in this period."}
             </div>
           ) : (
             <table className="tf-table">
@@ -585,13 +808,15 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                   <th className="tf-th tf-th-chevron" aria-hidden />
                   <th className="tf-th tf-th-left">Endpoint</th>
                   {sortTh("total_requests", "Requests")}
-                  {sortTh("error_rate", "Error rate")}
+                  {sortTh("client_error_rate", "Client 4xx")}
+                  {sortTh("server_error_rate", "Server 5xx")}
+                  {sortTh("error_rate", "Total")}
                   {sortTh("data", "Data transferred")}
                   <th className="tf-th tf-th-actions" aria-hidden />
                 </tr>
               </thead>
               <tbody>
-                {filteredEndpoints.map((row) => {
+                {endpoints.map((row) => {
                   const key = rowKey(row);
                   return (
                   <tr
@@ -618,10 +843,16 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                           className="tf-bar"
                           style={{ width: `${(row.total_requests / maxRequests) * 100}%` }}
                         />
-                        <span className="tf-bar-val">{row.total_requests.toLocaleString()}</span>
+                        <span className="tf-bar-val"><LiveNumber value={row.total_requests} format={fmtNum} hideDelta /></span>
                       </span>
                     </td>
-                    <td className={`tf-td-num ${errToneClass(row.error_rate || 0)}`}>
+                    <td className={`tf-td-num ${(row.client_error_rate || 0) > 0 ? "err-4xx" : ""}`}>
+                      {(row.client_error_rate || 0).toFixed(1)} %
+                    </td>
+                    <td className={`tf-td-num ${(row.server_error_rate || 0) > 0 ? "err-5xx" : ""}`}>
+                      {(row.server_error_rate || 0).toFixed(1)} %
+                    </td>
+                    <td className={`tf-td-num ${(row.error_rate || 0) >= 5 ? "tf-err-bad" : (row.error_rate || 0) >= 1 ? "tf-err-warn" : ""}`}>
                       {(row.error_rate || 0).toFixed(1)} %
                     </td>
                     <td className="tf-td-num">{fmtBytes(dataBytes(row))}</td>
@@ -674,6 +905,17 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
             </table>
           )}
         </div>
+
+        {!endpointsLoading && endpointTotal > 0 && (
+          <div className="tf-pagination">
+            <span className="tf-pagination-info">
+              Showing {((currentPage - 1) * EP_PAGE_SIZE + 1).toLocaleString()}–
+              {Math.min(currentPage * EP_PAGE_SIZE, endpointTotal).toLocaleString()} of{" "}
+              {endpointTotal.toLocaleString()} endpoint{endpointTotal === 1 ? "" : "s"}
+            </span>
+            <Pagination page={currentPage} totalPages={totalPages} onChange={setEndpointPage} />
+          </div>
+        )}
       </section>
 
       {openRow && (
@@ -787,16 +1029,15 @@ function TfTooltip({ active, payload, label, kind, name, fmtVal, spanHours }: an
   const heading = bucketTipLabel(label, spanHours ?? 24);
 
   if (kind === "stack") {
-    const success = payload.find((p: any) => p.name === "Success")?.value ?? 0;
-    const errors = payload.find((p: any) => p.name === "Errors")?.value ?? 0;
-    const total = success + errors;
-    const rate = total > 0 ? (errors / total) * 100 : 0;
+    // Generic over 2 or 3 stacked series (status classes / error classes).
+    const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0);
     return (
       <div className="tf-tip">
         <p className="tf-tip-label">{heading}</p>
         <p style={{ color: "var(--text-primary)" }}>Total: {f(total)}</p>
-        <p style={{ color: GREEN }}>Success: {f(success)}</p>
-        <p style={{ color: RED }}>Errors: {f(errors)} ({rate.toFixed(1)}%)</p>
+        {payload.map((p: any, i: number) => (
+          <p key={i} style={{ color: p.color || p.fill || ACCENT }}>{p.name}: {f(p.value ?? 0)}</p>
+        ))}
       </div>
     );
   }

@@ -1,0 +1,27 @@
+---
+title: "Roadmap"
+description: "What APILens doesn't do yet — stated plainly — and what's coming."
+---
+
+We'd rather tell you what's missing than let you discover it. Here is where APILens stands today and what's planned. Priorities move based on what users ask for — the fastest way to influence this list is [Discord](https://discord.com/invite/GucYGFRh).
+
+## Available today
+
+Metrics with client/server error split · request logs with headers, payloads & cURL export · automatic tracing with cross-service stitching · automatic error stack traces · consumer analytics · path templating · live dashboards · Python SDK (FastAPI, Django, Flask, Starlette, Litestar, BlackSheep, generic ASGI/WSGI) · Express SDK (beta) · direct Ingest API.
+
+## Planned
+
+| Feature | Status | Notes |
+|---|---|---|
+| **Alerts** | Planned | Threshold and anomaly alerts on error rates and latency, delivered to email/Slack/webhooks. Today: the notifications bell exists, but no metric-based alerting — pair APILens with your existing pager for now. |
+| **Uptime monitoring** | Planned | Synthetic checks against your endpoints from outside your infra. |
+| **Field-level masking** | Planned | Regex/callback masking of individual body fields and query params. Today: body/header capture switches are all-or-nothing per side — see [Data privacy](/getting-started/data-privacy). |
+| **Endpoint exclusion** | Planned | Exclude health checks and probes from metrics. Today: use `path:` filters per view. |
+| **Custom spans** | Considering | Removed in SDK 0.3.0 in favor of automatic-only tracing; will return through deeper OpenTelemetry interop rather than a proprietary span API. |
+| **More JS frameworks** | Planned | Fastify, Koa, NestJS, Next.js route handlers. Today: Express (beta) or the [Ingest API](/ingest/ingest-api). |
+| **p50/p99 latency percentiles** | Planned | Today the dashboard surfaces average and p95. |
+| **Saved views & CSV export** | Considering | Filters are already shareable via URL. |
+
+## How to read this page
+
+"Planned" means designed and sequenced; "Considering" means we want the feedback before committing. Nothing here is a commitment to a date — but everything shipped in the [release notes](/releases/alpha-1-launch) started on this list.

@@ -1,0 +1,83 @@
+---
+title: "Python configuration"
+description: "Every option, default, and environment variable of the APILens Python SDK."
+---
+
+The Python SDK splits configuration in two: **`ApiLensConfig`** controls the client (auth, delivery, resilience), and **middleware options** control what gets captured per request. Framework integrations pass both through.
+
+```bash
+pip install apilenss   # import as `apilens`
+```
+
+Current version: **0.4.0** · Python ≥ 3.10 · Only two runtime dependencies (`opentelemetry-api`, `opentelemetry-sdk`).
+
+## ApiLensConfig (client)
+
+```python
+from apilens import ApiLensClient, ApiLensConfig
+
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `api_key` | — **(required)** | Project-level API key. Empty raises `ValueError`. |
+| `project_slug` | `""` | Optional — the key already identifies the project; set it only to assert they match. |
+| `base_url` | `"https://ingest.apilens.ai/v1"` | Ingest base URL. Point at your own host if self-hosting ingest. |
+| `environment` | `"production"` | Environment label attached to every record. |
+| `batch_size` | `200` | Records per batch; reaching it triggers an immediate flush. |
+| `flush_interval` | `3.0` | Seconds between background flushes. |
+| `timeout` | `5.0` | Per-request HTTP timeout (seconds). |
+| `verify_tls` | `True` | TLS certificate verification. |
+| `ca_bundle_path` | `""` | Custom CA bundle for private CAs. |
+| `max_queue_size` | `10_000` | Per-queue cap; oldest records are dropped when full. |
+| `max_retries` | `3` | Delivery attempts per batch. |
+| `retry_backoff_base` | `0.25` | Exponential backoff base (seconds). |
+| `retry_backoff_max` | `5.0` | Backoff ceiling (seconds). |
+| `enabled` | `True` | Master kill switch — `False` disables capture and the background worker. |
+| `ingest_path` / `spans_path` / `logs_path` | `"/requests"` / `"/traces"` / `"/logs"` | Endpoint paths, relative to `base_url`. |
+
+## Middleware options (capture)
+
+Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, `ApiLensPlugin` (Litestar), and the generic `ApiLensASGIMiddleware`/`ApiLensWSGIMiddleware`:
+
+| Option | Default | Description |
+|---|---|---|
+| `app_id` | `""` | App slug — attributes traffic to an app in the project. **Required for tracing.** |
+| `environment` | client's value | Per-app override of the environment label. |
+| `enable_request_logging` | `True` | Master switch for header + body capture. |
+| `log_request_body` | `True` | Capture request bodies. |
+| `log_response_body` | `True` | Capture response bodies. |
+| `capture_payloads` | `True` | AND-ed with `enable_request_logging` for bodies. |
+| `capture_headers` | `True` | Capture headers (sensitive values redacted — see [Data privacy](/getting-started/data-privacy)). |
+| `max_payload_bytes` | `65536` | Per-body truncation limit; `0` disables body capture. |
+| `capture_spans` | `True` | Automatic tracing + error-trace capture. |
+| `service_name` | `""` | Span service name (defaults to the app id). |
+| `get_consumer` | `None` | Centralized consumer resolver — see [Consumer identification](/sdk-reference/consumers). |
+| `route_resolver` | `None` | Custom callback returning the route template for a request. |
+| `parametrize_paths` | `True` | Heuristic path templating fallback — see [Path templating](/sdk-reference/path-templating). |
+
+## Environment variables
+
+Two variables act as **deploy-time kill switches** that override code (they can only turn features *off*):
+
+| Variable | Effect |
+|---|---|
+| `APILENS_CAPTURE_SPANS` | `0`/`false`/`no`/`off`/`disabled` disables all span and error-trace capture. |
+| `APILENS_PARAMETRIZE_PATHS` | `0`/`false`/`no`/`off` disables the heuristic templating fallback. |
+
+Django reads its entire configuration from settings instead — `APILENS_API_KEY`, `APILENS_APP_ID` (both required) and the optional set listed in the [Django guide](/setup-guides/django).
+
+## Delivery semantics
+
+Worth knowing when you reason about failure modes:
+
+- Capture only **enqueues**; a single daemon thread (`apilens-flush`) does all network I/O.
+- Three independent queues (requests, spans, logs) flush every `flush_interval` or as soon as `batch_size` accumulates.
+- Retries use exponential backoff; 4xx responses other than 429 are not retried.
+- On overflow the **oldest** record is dropped — your app's memory is bounded and never blocked.
+- `client.shutdown(flush=True)` (or using the client as a context manager) drains queues on exit.
+
+## What's on the wire
+
+Each request record carries: `app_id`, `timestamp`, `environment`, `method`, `path` (template), `raw_path` (exact URL), `status_code`, `response_time_ms`, `request_size`, `response_size`, `ip_address` (proxy-header aware), `user_agent`, consumer fields, payloads/headers (as configured), `base_url`, `trace_id`, `span_id`. The full schema is in the [Ingest API reference](/ingest/request-schema).

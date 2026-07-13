@@ -4,11 +4,13 @@ import time
 from typing import Any
 
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
+from .client._routes import django_route_template, resolve_endpoint_path
 from .client._sanitize import decode_utf8_safe, serialize_headers
 from .client import ApiLensClient, ApiLensConfig
 from .client.middleware import (
     _apply_consumer,
     _consumer_ctx,
+    _maybe_record_error,
     _read_consumer,
     normalize_consumer,
     set_consumer,
@@ -124,6 +126,9 @@ class ApiLensDjangoMiddleware:
             raise RuntimeError("APILENS_APP_ID is required in Django settings")
         self.max_payload_bytes = int(getattr(settings, "APILENS_MAX_PAYLOAD_BYTES", 65536))
         self.capture_headers = bool(getattr(settings, "APILENS_CAPTURE_HEADERS", True))
+        # Heuristic path parametrization when the URL resolver gives no route
+        # (env APILENS_PARAMETRIZE_PATHS wins over this setting).
+        self.parametrize_paths = bool(getattr(settings, "APILENS_PARAMETRIZE_PATHS", True))
         # Optional resolver, e.g. APILENS_GET_CONSUMER = lambda request: request.user.username
         # Nothing is inferred automatically; it only runs the resolver you provide.
         self.get_consumer = _resolve_get_consumer(settings)
@@ -136,6 +141,15 @@ class ApiLensDjangoMiddleware:
                 environment=getattr(settings, "APILENS_ENVIRONMENT", None),
                 service_name=getattr(settings, "APILENS_SERVICE_NAME", "") or self.app_id,
             )
+
+    def process_exception(self, request, exception):
+        """Django calls this when a view raises — stash it so ``__call__``'s
+        finally can log the exception (with traceback) against the trace."""
+        try:
+            setattr(request, "_apilens_exc", exception)
+        except Exception:
+            pass
+        return None
 
     def __call__(self, request):
         started_at = time.perf_counter()
@@ -156,9 +170,11 @@ class ApiLensDjangoMiddleware:
         except Exception:
             base_url = ""
 
+        raw_path = _normalize_path(getattr(request, "path", "/") or "/")
         ctx = CaptureContext(
             method=(request.method or "GET").upper(),
-            path=_normalize_path(getattr(request, "path", "/") or "/"),
+            path=raw_path,
+            raw_path=raw_path,
             project_slug=self.project_slug or self.client.config.project_slug,
             app_id=self.app_id,
             request_size=_to_int(request.META.get("CONTENT_LENGTH"), 0),
@@ -193,6 +209,11 @@ class ApiLensDjangoMiddleware:
                     response_headers = ""
             return response
         finally:
+            # resolver_match is populated once the request has been routed, so
+            # group under the URLconf route template; raw_path keeps the URL.
+            ctx.path = resolve_endpoint_path(
+                django_route_template(request), ctx.raw_path, self.parametrize_paths
+            )
             consumer = dict(_read_consumer(request))
             if self.get_consumer is not None and not consumer.get("consumer_id"):
                 try:
@@ -204,7 +225,9 @@ class ApiLensDjangoMiddleware:
             _apply_consumer(ctx, consumer)
             _consumer_ctx.reset(consumer_token)
             end_request_trace(trace_token)
+            captured_exc = getattr(request, "_apilens_exc", None)
             if self.capture_spans:
+                is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
                     kind="server",
@@ -212,8 +235,17 @@ class ApiLensDjangoMiddleware:
                     span_id=span_id,
                     parent_span_id=parent_span_id,
                     duration_ms=(time.perf_counter() - started_at) * 1000.0,
-                    status="error" if status_code >= 500 else "ok",
+                    status="error" if is_error else "ok",
                     status_code=status_code,
+                )
+                _maybe_record_error(
+                    exc=captured_exc,
+                    status_code=status_code,
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    method=ctx.method,
+                    path=ctx.path,
+                    consumer=consumer,
                 )
             capture_response(
                 self.client,

@@ -137,6 +137,35 @@ framework helpers manage the client lifecycle for you.
 
 ---
 
+## Endpoint grouping (path templating)
+
+`GET /product/123` and `GET /product/324` are the **same endpoint**, so the SDK
+groups them under the route template `GET /product/{id}` instead of exploding
+into one endpoint per id. It does this the accurate way — by reading the
+**matched route** from your framework:
+
+| Framework | Source of the template |
+| --- | --- |
+| FastAPI / Starlette | matched `route.path` |
+| Flask | `url_map` rule (`/product/<int:id>` → `/product/{id}`) |
+| Django / django-ninja | `resolver_match.route` |
+| Litestar | route handler path |
+| BlackSheep | matched route pattern |
+
+The **exact URL** (`/product/123`) is preserved separately and shown in the
+request log — you lose nothing.
+
+When no route matches (an unhandled URL, a raw ASGI app), the SDK falls back to
+a conservative heuristic that parametrizes id-looking segments (integers,
+UUIDs, ULIDs, long hashes) — e.g. `/product/123` → `/product/{id}`. Disable the
+fallback with `parametrize_paths=False` on the middleware, or globally:
+
+```bash
+export APILENS_PARAMETRIZE_PATHS=false
+```
+
+---
+
 ## Framework integrations
 
 | Framework | Module | Mechanism | Tracing |
@@ -337,40 +366,28 @@ code you get:
 - **cross-service stitching** — an inbound `traceparent` is continued, so a call
   chain across several of your services shows up as one waterfall in the dashboard.
 
-### Custom spans
+Spans are captured **entirely automatically** — there is no manual span API.
+A normal request shows its server span (plus any auto-instrumented outbound HTTP
+spans) in the waterfall; nothing to wire up.
 
-Break a request down further with the `span` context manager. It nests correctly,
-records duration, and marks the span as errored if the block raises:
+### Automatic error capture
+
+When a request **raises an unhandled exception** or **returns a 5xx**, APILens
+automatically records one ERROR message on that request's trace — with the
+exception type, message, and full traceback — and marks the span as errored.
+It shows up under **Trace messages** in the dashboard, lined up with the span.
 
 ```python
-import apilens
-
 @app.get("/orders/{order_id}")
 async def get_order(order_id: str):
-    with apilens.span("load order", kind="db", attributes={"order.id": order_id}):
-        order = await db.fetch_order(order_id)
-
-    with apilens.span("enrich", kind="internal"):
-        order = enrich(order)
-
-    return order
+    order = await db.fetch_order(order_id)   # if this raises, the trace
+    return order                             # carries the exception + traceback
 ```
 
-`kind` is a free-form hint (`server`, `client`, `http`, `db`, `internal`, …) used
-for grouping and color in the waterfall. Calling `span()` outside a request — or
-before any middleware is installed — is a safe no-op, so shared helpers can use it
-unconditionally.
+Nothing to call — a clean request has no trace messages; a failing one does.
+This is the only thing written to `/v1/logs`; it is not a general logging API.
 
-### Correlating your logs
-
-Stamp your own log lines with the current trace id and the dashboard will link
-them to the request:
-
-```python
-import logging, apilens
-
-logging.info("charge captured", extra={"trace_id": apilens.current_trace_id()})
-```
+### Propagating the trace
 
 `apilens.current_trace_id()`, `current_span_id()`, and `current_traceparent()`
 return the active context (empty strings outside a request). Use
@@ -565,8 +582,8 @@ app in the key's project. Set it to the app slug from the dashboard.
 **`401 Unauthorized`.** The API key is missing, revoked, or not project-scoped.
 
 **Spans/traces are empty.** Ensure an `app_id` is set (spans require it) and, on
-Django, that `APILENS_CAPTURE_SPANS` isn't `False`. Only `requests`/`httpx`
-outbound calls are auto-instrumented — wrap other work in `apilens.span(...)`.
+Django, that `APILENS_CAPTURE_SPANS` isn't `False`. Spans are captured
+automatically for the request and for outbound `requests`/`httpx` calls.
 
 ---
 

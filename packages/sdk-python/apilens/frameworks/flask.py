@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..client import ApiLensClient
+from ..client._routes import flask_route_template
 from ..client.middleware import ApiLensWSGIMiddleware, set_consumer, track_consumer
 
 
@@ -52,6 +53,8 @@ def instrument_flask(
             get_consumer=lambda environ: environ.get("HTTP_X_USER_ID"),
         )
     """
+    # Close over the Flask app so the resolver can match the WSGI environ
+    # against its url_map (rule.rule → /product/<int:id> → /product/{id}).
     app.wsgi_app = ApiLensWSGIMiddleware(  # type: ignore[assignment]
         app.wsgi_app,
         client=client,
@@ -61,6 +64,7 @@ def instrument_flask(
         capture_spans=capture_spans,
         service_name=service_name,
         get_consumer=get_consumer,
+        route_resolver=lambda environ: flask_route_template(app, environ),
     )
     return app
 

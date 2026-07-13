@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .._version import __version__
-from .models import RequestRecord, SpanRecord
+from .models import LogRecord, RequestRecord, SpanRecord
 
 logger = logging.getLogger("apilens")
 
@@ -26,6 +26,7 @@ class ApiLensConfig:
     environment: str = "production"
     ingest_path: str = "/requests"
     spans_path: str = "/traces"
+    logs_path: str = "/logs"
 
     batch_size: int = 200
     flush_interval: float = 3.0
@@ -57,6 +58,7 @@ class ApiLensClient:
         self.config = config
         self._queue: deque[RequestRecord] = deque()
         self._span_queue: deque[SpanRecord] = deque()
+        self._log_queue: deque[LogRecord] = deque()
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._wakeup = threading.Event()
@@ -100,6 +102,7 @@ class ApiLensClient:
         timestamp: datetime | None = None,
         method: str,
         path: str,
+        raw_path: str = "",
         status_code: int,
         response_time_ms: float,
         project_slug: str = "",
@@ -125,6 +128,7 @@ class ApiLensClient:
             environment=environment or self.config.environment,
             method=method,
             path=path,
+            raw_path=raw_path or path,
             status_code=status_code,
             response_time_ms=response_time_ms,
             project_slug=project_slug or self.config.project_slug,
@@ -176,6 +180,19 @@ class ApiLensClient:
         if queue_size >= self.config.batch_size:
             self._wakeup.set()
 
+    def capture_log(self, record: LogRecord) -> None:
+        if not self.config.enabled:
+            return
+        with self._lock:
+            if len(self._log_queue) >= self.config.max_queue_size:
+                self._log_queue.popleft()
+                self._dropped += 1
+            self._log_queue.append(record)
+            queue_size = len(self._log_queue)
+
+        if queue_size >= self.config.batch_size:
+            self._wakeup.set()
+
     def flush_once(self) -> int:
         total = 0
         batch = self._pop_batch(self.config.batch_size)
@@ -191,6 +208,13 @@ class ApiLensClient:
                 total += len(span_batch)
             else:
                 logger.warning("API Lens span ingest failed; dropping batch of %d spans", len(span_batch))
+
+        log_batch = self._pop_log_batch(self.config.batch_size)
+        if log_batch:
+            if self._send_batch_with_retry(log_batch, self._send_log_batch):
+                total += len(log_batch)
+            else:
+                logger.warning("API Lens log ingest failed; dropping batch of %d logs", len(log_batch))
         return total
 
     def flush_all(self) -> int:
@@ -229,6 +253,15 @@ class ApiLensClient:
                 batch.append(self._span_queue.popleft())
             return batch
 
+    def _pop_log_batch(self, size: int) -> list[LogRecord]:
+        with self._lock:
+            if not self._log_queue:
+                return []
+            batch: list[LogRecord] = []
+            for _ in range(min(size, len(self._log_queue))):
+                batch.append(self._log_queue.popleft())
+            return batch
+
     def _send_batch_with_retry(self, batch, send=None) -> bool:
         send = send or self._send_batch
         last_error: Exception | None = None
@@ -255,6 +288,9 @@ class ApiLensClient:
 
     def _send_span_batch(self, batch: list[SpanRecord]) -> None:
         self._post_json(self.config.spans_path, {"spans": [s.to_wire() for s in batch]})
+
+    def _send_log_batch(self, batch: list[LogRecord]) -> None:
+        self._post_json(self.config.logs_path, {"logs": [r.to_wire() for r in batch]})
 
     def _post_json(self, path: str, payload: dict) -> None:
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")

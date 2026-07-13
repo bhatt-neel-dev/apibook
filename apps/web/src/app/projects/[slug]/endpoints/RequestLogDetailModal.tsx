@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Fingerprint, Globe, Link2, Server, Terminal, Timer, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, ChevronRight, Copy, Fingerprint, Globe, Link2, Server, Terminal, Timer, X } from "lucide-react";
 import {
   formatBytes,
   formatDateTime,
@@ -20,6 +20,9 @@ export interface RequestItem {
   environment: string;
   method: string;
   path: string;
+  // Exact request URL (/product/123). `path` is the endpoint template
+  // (/product/{id}). Older rows have no raw_path — fall back to `path`.
+  raw_path?: string;
   status_code: number;
   response_time_ms: number;
   request_size: number;
@@ -214,6 +217,8 @@ function Body({ title, raw }: { title: string; raw: string | undefined }) {
 /* ── Related tab ─────────────────────────────────────────────────────── */
 
 const rowKey = (r: RequestItem) => `${r.timestamp}|${r.method}|${r.path}|${r.status_code}`;
+// Exact URL for display/curl; `path` (template) still drives grouping/filters.
+const reqUrl = (r: RequestItem) => r.raw_path || r.path;
 
 function RelatedRow({
   r,
@@ -237,7 +242,7 @@ function RelatedRow({
       <span className="ep-rel-time">{timeShort(r.timestamp)}</span>
       <span className={`endpoint-status-pill ${statusTone(r.status_code)}`}>{r.status_code}</span>
       <span className="ep-rel-method" style={{ color: methodColor(r.method) }}>{r.method}</span>
-      <span className="ep-rel-path">{r.path}</span>
+      <span className="ep-rel-path">{reqUrl(r)}</span>
       {current && <span className="ep-rel-here">this request</span>}
       <span className="ep-rel-dur">{formatMs(r.response_time_ms)}</span>
     </button>
@@ -446,28 +451,101 @@ function Waterfall({ spans }: { spans: SpanItem[] }) {
   const total = Math.max(traceEnd - traceStart, 1);
 
   return (
-    <div className="ep-rel-list">
-      {spans.map((s, i) => {
-        const left = Math.min(((starts[i] - traceStart) / total) * 100, 99);
-        const width = Math.max(Math.min((Math.max(s.duration_ms, 0) / total) * 100, 100 - left), 0.75);
-        const color = spanColor(s.kind, s.status);
-        return (
-          <div key={`${s.span_id}-${i}`} className="ep-trace-row">
-            <span
-              className="ep-trace-name"
-              style={{ paddingLeft: (depths.get(s.span_id) || 0) * 14 }}
-              title={`${s.name}${s.service_name ? ` · ${s.service_name}` : ""}`}
-            >
-              <span className="ep-trace-kind" style={{ color }}>{s.kind || "internal"}</span>
-              {s.name}
-            </span>
-            <span className="ep-trace-track">
-              <span className="ep-trace-bar" style={{ left: `${left}%`, width: `${width}%`, background: color }} />
-            </span>
-            <span className="ep-rel-dur">{formatMs(s.duration_ms)}</span>
+    <div className="ep-trace">
+      {/* One-line explainer + a time scale, so the bars read as a timeline
+          (start = when a step began, length = how long it took) rather than a
+          featureless progress bar. */}
+      <p className="ep-trace-hint">
+        Each row is one step of this request. A bar&apos;s <strong>position</strong> shows when the step
+        started and its <strong>length</strong> shows how long it took, across the request&apos;s total of {formatMs(total)}.
+      </p>
+      <div className="ep-trace-axis" aria-hidden>
+        <span className="ep-trace-axis-name">Span</span>
+        <span className="ep-trace-axis-scale">
+          <span>0</span>
+          <span>{formatMs(total / 2)}</span>
+          <span>{formatMs(total)}</span>
+        </span>
+        <span className="ep-trace-axis-dur">Duration</span>
+      </div>
+      <div className="ep-rel-list">
+        {spans.map((s, i) => {
+          const startOffset = starts[i] - traceStart;
+          const left = Math.min((startOffset / total) * 100, 99);
+          const width = Math.max(Math.min((Math.max(s.duration_ms, 0) / total) * 100, 100 - left), 0.75);
+          const color = spanColor(s.kind, s.status);
+          return (
+            <div key={`${s.span_id}-${i}`} className="ep-trace-row">
+              <span
+                className="ep-trace-name"
+                style={{ paddingLeft: (depths.get(s.span_id) || 0) * 14 }}
+                title={`${s.name}${s.service_name ? ` · ${s.service_name}` : ""}`}
+              >
+                <span className="ep-trace-kind" style={{ color }}>{s.kind || "internal"}</span>
+                {s.name}
+              </span>
+              <span
+                className="ep-trace-track"
+                title={`Started +${formatMs(startOffset)} into the request · ran for ${formatMs(s.duration_ms)}`}
+              >
+                <span className="ep-trace-bar" style={{ left: `${left}%`, width: `${width}%`, background: color }} />
+              </span>
+              <span className="ep-rel-dur">{formatMs(s.duration_ms)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// One log line. When APILens captured a payload (the full exception traceback
+// for `apilens.exception` errors), the row expands to show it verbatim.
+function LogRow({ log }: { log: LogItem }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hasPayload = !!(log.payload && log.payload.trim());
+  const level = (log.level || "INFO").toUpperCase();
+  const isError = level === "ERROR" || level === "CRITICAL";
+  const copyTrace = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(log.payload || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+  return (
+    <div className={`ep-log-item${open ? " is-open" : ""}${isError ? " is-error" : ""}`}>
+      <button
+        type="button"
+        className={`ep-log-row${hasPayload ? " is-expandable" : ""}`}
+        onClick={() => hasPayload && setOpen((o) => !o)}
+        aria-expanded={hasPayload ? open : undefined}
+      >
+        {hasPayload ? (
+          <ChevronRight size={13} className={`ep-log-caret${open ? " is-open" : ""}`} />
+        ) : (
+          <span className="ep-log-caret-spacer" aria-hidden />
+        )}
+        <span className="ep-rel-time">{timeShort(log.timestamp)}</span>
+        <span className={`endpoint-status-pill ${levelTone(log.level)}`}>{level}</span>
+        {log.logger_name ? <span className="ep-log-logger" title={log.logger_name}>{log.logger_name}</span> : null}
+        <span className="ep-log-msg" title={log.message}>{log.message}</span>
+        {hasPayload ? <span className="ep-log-toggle">{open ? "Hide" : "Stack trace"}</span> : null}
+      </button>
+      {open && hasPayload ? (
+        <div className="ep-log-trace-wrap">
+          <div className="ep-log-trace-head">
+            <span>Traceback</span>
+            <button type="button" className="ep-rl-copy" onClick={copyTrace}>
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
           </div>
-        );
-      })}
+          <pre className="request-payload-pre ep-log-trace">{log.payload}</pre>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -548,8 +626,8 @@ function TraceTab({
           <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
         ) : spans.length === 0 ? (
           <div className="endpoint-detail-empty">
-            No spans recorded for this trace yet. The middleware records the request span automatically;
-            add <code>with apilens.span(&quot;name&quot;)</code> around interesting work to break the time down further.
+            No spans recorded for this trace yet. Spans are captured automatically — upgrade the APILens SDK
+            if this request is missing them.
           </div>
         ) : (
           <Waterfall spans={spans} />
@@ -557,24 +635,20 @@ function TraceTab({
       </div>
       <div className="ep-rl-headblock">
         <h4 className="ep-rl-subhead">
-          Logs in this trace
+          Trace messages
           {logs?.length ? <span className="ep-rl-count">{logs.length}</span> : null}
         </h4>
         {logs === null ? (
           <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
         ) : logs.length === 0 ? (
           <div className="endpoint-detail-empty">
-            No logs correlated with this request. Ship application logs with this trace id to see them here.
+            No errors on this request. APILens records a message here automatically when a request raises an
+            exception or returns a 5xx — a clean request has nothing to show.
           </div>
         ) : (
           <div className="ep-rel-list">
             {logs.map((l, i) => (
-              <div key={`${l.timestamp}-${i}`} className="ep-log-row">
-                <span className="ep-rel-time">{timeShort(l.timestamp)}</span>
-                <span className={`endpoint-status-pill ${levelTone(l.level)}`}>{(l.level || "INFO").toUpperCase()}</span>
-                {l.logger_name ? <span className="ep-log-logger" title={l.logger_name}>{l.logger_name}</span> : null}
-                <span className="ep-log-msg" title={l.message}>{l.message}</span>
-              </div>
+              <LogRow key={`${l.timestamp}-${i}`} log={l} />
             ))}
           </div>
         )}
@@ -682,7 +756,7 @@ export default function RequestLogDetailModal({
   const curl = useMemo(() => {
     const base = (pr?.base_url || "").replace(/\/$/, "") || "YOUR_BASE_URL";
     const body = formatPayload(pr?.request_payload);
-    const lines = [`curl -X ${row.method} "${base}${row.path}"`];
+    const lines = [`curl -X ${row.method} "${base}${reqUrl(row)}"`];
     if (body) {
       lines.push(`  -H "Content-Type: application/json"`);
       lines.push(`  -d '${body.replace(/'/g, "'\\''")}'`);
@@ -706,7 +780,7 @@ export default function RequestLogDetailModal({
             <span className="ep-emodal-crumb">Request details</span>
             <span className={`endpoint-status-pill ${statusTone(row.status_code)}`}>{row.status_code}</span>
             <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-            <span className="ep-emodal-path">{row.path}</span>
+            <span className="ep-emodal-path">{reqUrl(row)}</span>
           </div>
           <div className="ep-emodal-headactions">
             <button type="button" className="ep-rl-curl" onClick={copyCurl} title="Copy as cURL">

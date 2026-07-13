@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .client import ApiLensClient, ApiLensConfig
+from .client._routes import starlette_route_template
 from .client.middleware import ApiLensASGIMiddleware
 from .frameworks.fastapi import instrument_fastapi, set_consumer, track_consumer
 
@@ -75,6 +76,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             service_name=service_name,
             max_payload_bytes=max_payload_bytes,
             get_consumer=get_consumer,
+            route_resolver=starlette_route_template,
         )
 
 

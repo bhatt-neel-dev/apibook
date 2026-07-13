@@ -30,6 +30,10 @@ interface ConsumerStat {
   total_requests: number;
   error_count: number;
   error_rate: number;
+  client_error_rate?: number;
+  server_error_rate?: number;
+  client_error_count?: number;
+  server_error_count?: number;
   avg_response_time_ms: number;
   last_seen_at: string | null;
 }
@@ -139,10 +143,11 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
 
   return (
     <div className="ep-rl">
-      {/* ── Toolbar ── */}
+      {/* ── Toolbar: filter search + consumer search + time on one line ── */}
       <div className="ep-rl-toolbar">
-        <h1 className="ep-rl-title">Consumers</h1>
-        <div className="ep-rl-spacer" />
+        <div className="ep-rl-filtergrow">
+          <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["consumer"]} />
+        </div>
 
         <div className="ep-search ep-rl-search">
           <Search size={12} />
@@ -166,11 +171,6 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
         </button>
       </div>
 
-      {/* Full-width rich filter row (consumer is excluded — this IS the list). */}
-      <div className="ep-rl-filterrow">
-        <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["consumer"]} />
-      </div>
-
       {/* ── Consumer table ── */}
       <section className="ep-rl-card">
         {loading && (rows === null || rows.length === 0) ? (
@@ -190,7 +190,8 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
                   <th>Consumer</th>
                   <th>Group</th>
                   <th className="ep-th-num">Requests</th>
-                  <th className="ep-th-num">Error rate</th>
+                  <th className="ep-th-num">Client 4xx</th>
+                  <th className="ep-th-num">Server 5xx</th>
                   <th className="ep-th-num">Avg response</th>
                   <th className="ep-th-num">Last seen</th>
                   <th aria-hidden />
@@ -226,8 +227,11 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
                         <span className="ep-cbar-val">{formatNumber(c.total_requests)}</span>
                       </span>
                     </td>
-                    <td className={`ep-td-num${(c.error_rate || 0) >= 5 ? " tone-bad" : (c.error_rate || 0) >= 1 ? " tone-warn" : ""}`}>
-                      {(c.error_rate || 0).toFixed(1)} %
+                    <td className={`ep-td-num${(c.client_error_rate || 0) > 0 ? " err-4xx" : ""}`}>
+                      {(c.client_error_rate || 0).toFixed(1)} %
+                    </td>
+                    <td className={`ep-td-num${(c.server_error_rate || 0) > 0 ? " err-5xx" : ""}`}>
+                      {(c.server_error_rate || 0).toFixed(1)} %
                     </td>
                     <td className="ep-td-num">{formatMs(c.avg_response_time_ms)}</td>
                     <td className="ep-td-num">{c.last_seen_at ? timeAgo(c.last_seen_at) : "—"}</td>

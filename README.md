@@ -223,7 +223,7 @@ curl -H "X-User-Email: alice@example.com" -H "X-User-Name: Alice" http://localho
 ## Repo conventions
 
 - pnpm workspaces are everything under `apps/*` and `packages/*` with a `package.json`.
-- Python apps + Dart SDK are workspace-invisible to pnpm — `uv` and `pub` manage those.
+- Python apps (`apps/api`, `apps/ingest`, `apps/identity`) are workspace-invisible to pnpm — `uv` manages those.
 - CI runs only on the workspace you touched (path-filtered).
 - Each app has its own `.env` (start from `.env.example`).
 

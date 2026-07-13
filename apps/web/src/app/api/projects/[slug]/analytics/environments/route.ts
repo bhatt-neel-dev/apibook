@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/session";
+import { fetchWithRefresh } from "@/lib/proxy";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +21,9 @@ export async function GET(
   const upstream = `${process.env.DJANGO_API_URL || "http://localhost:8000/api/v1"}/projects/${slug}/analytics/environments${qs ? `?${qs}` : ""}`;
 
   try {
-    const res = await fetch(upstream, {
+    const res = await fetchWithRefresh(upstream, session, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${session.accessToken}`,
-      },
+      headers: { "Content-Type": "application/json" },
       cache: "no-store",
     });
 
@@ -34,10 +32,7 @@ export async function GET(
       status: res.status,
       headers: { "Content-Type": res.headers.get("content-type") || "application/json" },
     });
-  } catch (error) {
-    return NextResponse.json(
-      { environments: [] },
-      { status: 200 }
-    );
+  } catch {
+    return NextResponse.json({ environments: [] }, { status: 200 });
   }
 }

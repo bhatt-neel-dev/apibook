@@ -582,6 +582,8 @@ class IngestService:
     _consumer_columns_lock = threading.Lock()
     _base_url_column_ready = False
     _base_url_column_lock = threading.Lock()
+    _raw_path_column_ready = False
+    _raw_path_column_lock = threading.Lock()
     _trace_columns_ready = False
     _trace_columns_lock = threading.Lock()
     _api_logs_table_ready = False
@@ -642,6 +644,23 @@ class IngestService:
                 logger.warning("Unable to ensure base_url column on api_requests: %s", exc)
                 return
             IngestService._base_url_column_ready = True
+
+    @staticmethod
+    def ensure_raw_path_column(client) -> None:
+        """Exact-URL column (grouping template lives in `path`)."""
+        if IngestService._raw_path_column_ready:
+            return
+        with IngestService._raw_path_column_lock:
+            if IngestService._raw_path_column_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS raw_path String DEFAULT '' CODEC(ZSTD(1))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure raw_path column on api_requests: %s", exc)
+                return
+            IngestService._raw_path_column_ready = True
 
     @staticmethod
     def ensure_consumer_columns(client) -> None:
@@ -998,6 +1017,10 @@ class EndpointStatsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,
                 sum(request_size) AS total_request_bytes,
@@ -1238,6 +1261,10 @@ class ConsumerStatsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 max(timestamp) AS last_seen_at
             FROM api_requests
@@ -1394,6 +1421,10 @@ class ConsumerStatsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 max(timestamp) AS last_seen_at
             FROM api_requests
@@ -2086,6 +2117,7 @@ class DataQueryService:
                 "page_size": safe_size,
             }
         IngestService.ensure_trace_columns(client)
+        IngestService.ensure_raw_path_column(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         params: dict[str, Any] = {
@@ -2177,6 +2209,7 @@ class DataQueryService:
                 environment,
                 method,
                 path,
+                raw_path,
                 status_code,
                 response_time_ms,
                 request_size,
@@ -2218,6 +2251,355 @@ class DataQueryService:
                 "page": safe_page,
                 "page_size": safe_size,
             }
+
+    # ── Errors (exception-centric views over api_logs) ──────────────────────
+    #
+    # The SDK writes one ERROR log per failing request (exception or 5xx) into
+    # api_logs: `message` = "ExceptionType: msg", `payload` = the full traceback,
+    # plus endpoint_method/path, status_code, consumer_*, trace_id. These power
+    # the dedicated Errors page. 4xx client errors don't produce an ERROR log, so
+    # the 4xx picture (summary tiles + chart) comes from api_requests instead.
+
+    @staticmethod
+    def _build_error_log_where(
+        params: dict,
+        project_id: str,
+        app_ids: list[str] | None,
+        environment: str | None,
+        since: str | None,
+        until: str | None,
+    ) -> str:
+        """Shared WHERE for api_logs error queries. Mutates `params` in place and
+        returns the SQL fragment (project + apps + env + time window + level)."""
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params["project_id"] = project_id
+        params["since"] = since_dt
+        params["until"] = until_dt
+
+        app_filter = ""
+        if app_ids:
+            placeholders = []
+            for idx, app_id in enumerate(app_ids):
+                key = f"app_id_{idx}"
+                params[key] = app_id
+                placeholders.append(f"%({key})s")
+            app_filter = f"AND app_id IN ({', '.join(placeholders)})"
+
+        env_filter = ""
+        if environment:
+            params["environment"] = environment
+            env_filter = "AND environment = %(environment)s"
+
+        return f"""
+            WHERE project_id = %(project_id)s
+              {app_filter}
+              {env_filter}
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              AND level = 'ERROR'
+        """
+
+    @staticmethod
+    def get_project_error_summary(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict:
+        """Overview tiles for the Errors page: 4xx/5xx counts + error rate from
+        api_requests, and unique-issue / affected-consumer / last-seen from the
+        ERROR logs in api_logs."""
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        empty = {
+            "total_requests": 0,
+            "client_errors": 0,
+            "server_errors": 0,
+            "error_rate": 0.0,
+            "unique_issues": 0,
+            "affected_consumers": 0,
+            "last_seen": None,
+        }
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse init failed; empty error summary: %s", exc)
+            return empty
+
+        result = dict(empty)
+
+        # 4xx/5xx counts from api_requests (project-wide, no method/path).
+        try:
+            since_dt, until_dt = _resolve_time_range(since, until)
+            req_params: dict[str, Any] = {
+                "project_id": project_id,
+                "since": since_dt,
+                "until": until_dt,
+            }
+            req_app_filter = ""
+            if app_ids:
+                req_app_filter = "AND app_id IN %(app_ids)s"
+                req_params["app_ids"] = app_ids
+            req_env_filter = ""
+            if environment:
+                req_env_filter = "AND environment = %(environment)s"
+                req_params["environment"] = environment
+            req_query = f"""
+                SELECT
+                    count() AS total_requests,
+                    countIf(status_code >= 400 AND status_code < 500) AS client_errors,
+                    countIf(status_code >= 500) AS server_errors
+                FROM api_requests
+                WHERE project_id = %(project_id)s
+                  {req_app_filter}
+                  {req_env_filter}
+                  AND timestamp >= %(since)s
+                  AND timestamp <= %(until)s
+            """
+            rows = client.execute(req_query, req_params)
+            if rows:
+                r = rows[0]
+                total = int(r.get("total_requests") or 0)
+                client_errors = int(r.get("client_errors") or 0)
+                server_errors = int(r.get("server_errors") or 0)
+                result["total_requests"] = total
+                result["client_errors"] = client_errors
+                result["server_errors"] = server_errors
+                if total > 0:
+                    result["error_rate"] = round((client_errors + server_errors) / total * 100, 2)
+        except Exception as exc:
+            logger.warning("ClickHouse error-summary (requests) failed: %s", exc)
+
+        # Issue/consumer counts from api_logs ERROR rows.
+        try:
+            IngestService.ensure_api_logs_table(client)
+            params: dict[str, Any] = {}
+            where = DataQueryService._build_error_log_where(
+                params, project_id, app_ids, environment, since, until
+            )
+            log_query = f"""
+                SELECT
+                    uniqExact((endpoint_method, endpoint_path, status_code, message)) AS unique_issues,
+                    uniqExactIf(consumer_id, consumer_id != '') AS affected_consumers,
+                    max(timestamp) AS last_seen
+                FROM api_logs
+                {where}
+            """
+            rows = client.execute(log_query, params)
+            if rows:
+                r = rows[0]
+                result["unique_issues"] = int(r.get("unique_issues") or 0)
+                result["affected_consumers"] = int(r.get("affected_consumers") or 0)
+                result["last_seen"] = _as_utc(r.get("last_seen")) if r.get("last_seen") else None
+        except Exception as exc:
+            logger.warning("ClickHouse error-summary (logs) failed: %s", exc)
+
+        return result
+
+    @staticmethod
+    def get_project_error_issues(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        search: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Errors grouped into issues by (method, path, status, message). Each row
+        carries occurrences, first/last seen, affected consumers, the latest stack
+        trace, and the latest trace_id for drill-in."""
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse init failed; empty error issues: %s", exc)
+            return []
+
+        try:
+            IngestService.ensure_api_logs_table(client)
+            params: dict[str, Any] = {"limit": max(1, min(int(limit), 500))}
+            where = DataQueryService._build_error_log_where(
+                params, project_id, app_ids, environment, since, until
+            )
+            if search:
+                params["search"] = f"%{search.strip()}%"
+                where += " AND message ILIKE %(search)s"
+            query = f"""
+                SELECT
+                    endpoint_method AS method,
+                    endpoint_path AS path,
+                    status_code,
+                    message,
+                    any(logger_name) AS logger_name,
+                    count() AS occurrences,
+                    max(timestamp) AS last_seen,
+                    min(timestamp) AS first_seen,
+                    uniqExactIf(consumer_id, consumer_id != '') AS affected_consumers,
+                    argMax(payload, timestamp) AS stack_trace,
+                    argMax(trace_id, timestamp) AS last_trace_id
+                FROM api_logs
+                {where}
+                GROUP BY method, path, status_code, message
+                ORDER BY occurrences DESC, last_seen DESC
+                LIMIT %(limit)s
+            """
+            rows = client.execute(query, params)
+            for row in rows:
+                row["last_seen"] = _as_utc(row.get("last_seen"))
+                row["first_seen"] = _as_utc(row.get("first_seen"))
+                row["occurrences"] = int(row.get("occurrences") or 0)
+                row["affected_consumers"] = int(row.get("affected_consumers") or 0)
+                row["status_code"] = int(row.get("status_code") or 0)
+            return rows
+        except Exception as exc:
+            logger.warning("ClickHouse error-issues query failed: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_error_events(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        method: str | None = None,
+        path: str | None = None,
+        message: str | None = None,
+        trace_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Individual ERROR events, newest first. With no method/path/message it is
+        the flat "Feed"; with them it's a single issue's occurrences."""
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse init failed; empty error events: %s", exc)
+            return []
+
+        try:
+            IngestService.ensure_api_logs_table(client)
+            params: dict[str, Any] = {"limit": max(1, min(int(limit), 200))}
+            where = DataQueryService._build_error_log_where(
+                params, project_id, app_ids, environment, since, until
+            )
+            if method:
+                params["method"] = method
+                where += " AND endpoint_method = %(method)s"
+            if path:
+                params["path"] = path
+                where += " AND endpoint_path = %(path)s"
+            if message:
+                params["message"] = message
+                where += " AND message = %(message)s"
+            if trace_id:
+                params["trace_id"] = trace_id.strip().lower()
+                where += " AND trace_id = %(trace_id)s"
+            query = f"""
+                SELECT
+                    timestamp,
+                    endpoint_method AS method,
+                    endpoint_path AS path,
+                    status_code,
+                    message,
+                    payload,
+                    logger_name,
+                    consumer_id,
+                    consumer_name,
+                    trace_id,
+                    span_id
+                FROM api_logs
+                {where}
+                ORDER BY timestamp DESC
+                LIMIT %(limit)s
+            """
+            rows = client.execute(query, params)
+            for row in rows:
+                row["timestamp"] = _as_utc(row.get("timestamp"))
+                row["status_code"] = int(row.get("status_code") or 0)
+            return rows
+        except Exception as exc:
+            logger.warning("ClickHouse error-events query failed: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_error_status_groups(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        search: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        """Errors grouped by (status_code, method, path) over api_requests — the
+        Apitally-style errors table. Unlike the exception issues (api_logs, 5xx
+        only) this includes 4xx client errors, with per-group occurrence and
+        consumer counts."""
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse init failed; empty error status groups: %s", exc)
+            return []
+
+        try:
+            IngestService.ensure_raw_path_column(client)
+            since_dt, until_dt = _resolve_time_range(since, until)
+            params: dict[str, Any] = {
+                "project_id": project_id,
+                "since": since_dt,
+                "until": until_dt,
+                "limit": max(1, min(int(limit), 500)),
+            }
+            app_filter = ""
+            if app_ids:
+                app_filter = "AND app_id IN %(app_ids)s"
+                params["app_ids"] = app_ids
+            env_filter = ""
+            if environment:
+                env_filter = "AND environment = %(environment)s"
+                params["environment"] = environment
+            search_filter = ""
+            if search:
+                params["search"] = f"%{search.strip()}%"
+                search_filter = "AND path ILIKE %(search)s"
+            query = f"""
+                SELECT
+                    status_code,
+                    method,
+                    path,
+                    count() AS occurrences,
+                    uniqExactIf(consumer_id, consumer_id != '') AS consumers,
+                    max(timestamp) AS last_seen,
+                    argMax(trace_id, timestamp) AS sample_trace_id
+                FROM api_requests
+                WHERE project_id = %(project_id)s
+                  {app_filter}
+                  {env_filter}
+                  {search_filter}
+                  AND status_code >= 400
+                  AND timestamp >= %(since)s
+                  AND timestamp <= %(until)s
+                GROUP BY status_code, method, path
+                ORDER BY occurrences DESC, status_code DESC
+                LIMIT %(limit)s
+            """
+            rows = client.execute(query, params)
+            for row in rows:
+                row["status_code"] = int(row.get("status_code") or 0)
+                row["occurrences"] = int(row.get("occurrences") or 0)
+                row["consumers"] = int(row.get("consumers") or 0)
+                row["last_seen"] = _as_utc(row.get("last_seen"))
+            return rows
+        except Exception as exc:
+            logger.warning("ClickHouse error-status-groups query failed: %s", exc)
+            return []
 
 
 class AnalyticsService:
@@ -2270,6 +2652,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,
                 sum(request_size) AS total_request_bytes,
@@ -2355,6 +2741,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,
                 sum(request_size) AS total_request_bytes,
@@ -2412,6 +2802,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms
             FROM api_requests
             WHERE app_id = %(app_id)s
@@ -2476,6 +2870,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,
                 sum(request_size) AS total_request_bytes,
@@ -2612,6 +3010,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms
             FROM api_requests
             WHERE app_id = %(app_id)s
@@ -2841,6 +3243,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,
                 sum(request_size) AS total_request_bytes,
@@ -2954,8 +3360,13 @@ class AnalyticsService:
             SELECT
                 {bucket_expr} AS bucket,
                 count() AS total_requests,
+                countIf(status_code >= 200 AND status_code < 300) AS success_count,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,
                 sum(request_size) AS total_request_bytes,
@@ -3054,13 +3465,17 @@ class AnalyticsService:
 
         filters.append(AnalyticsService.build_filter_clause(project_id, filter, params))
 
-        # Map sort_by to valid column names
+        # Map sort_by to valid column names. "data" orders by total bytes
+        # transferred (the SELECT aliases below are referenceable in ORDER BY).
         sort_column_map = {
             "endpoint": "path",
             "total_requests": "total_requests",
             "error_rate": "error_rate",
+            "client_error_rate": "client_error_rate",
+            "server_error_rate": "server_error_rate",
             "avg_response_time_ms": "avg_response_time_ms",
             "p95_response_time_ms": "p95_response_time_ms",
+            "data": "sum(request_size) + sum(response_size)",
         }
         sort_column = sort_column_map.get(sort_by, "total_requests")
         sort_direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
@@ -3093,8 +3508,14 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 (countIf(status_code >= 400) / count()) * 100 AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
-                quantile(0.95)(response_time_ms) AS p95_response_time_ms
+                quantile(0.95)(response_time_ms) AS p95_response_time_ms,
+                sum(request_size) AS total_request_bytes,
+                sum(response_size) AS total_response_bytes
             FROM api_requests
             {' '.join(filters)}
             GROUP BY method, path
@@ -3108,136 +3529,17 @@ class AnalyticsService:
             # Rows are already dicts from the ClickHouse client wrapper
             clickhouse_items = [AnalyticsService._clean_nan_values(row) for row in rows]
 
-            # When a consumer or rich filter is applied, only show endpoints
-            # that actually matched — skip the DB overlay (which would re-add
-            # registered endpoints with zero traffic) and report ClickHouse's
-            # own count.
-            if consumer or filter:
-                return {"items": clickhouse_items, "total_count": int(total_count or 0)}
-
-            # Get all registered endpoints from PostgreSQL
-            db_result = AnalyticsService._get_endpoints_from_db(
-                project_id=project_id,
-                app_ids=app_ids,
-                methods=methods,
-                search_query=search_query,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-                page=page,
-                page_size=page_size,
-            )
-
-            # Merge ClickHouse stats into PostgreSQL endpoints
-            # Create a lookup map for ClickHouse data
-            stats_map = {(item["method"], item["path"]): item for item in clickhouse_items}
-
-            # Overlay ClickHouse stats onto DB endpoints
-            merged_items = []
-            for db_item in db_result["items"]:
-                key = (db_item["method"], db_item["path"])
-                if key in stats_map:
-                    # Use ClickHouse stats if available
-                    merged_items.append(stats_map[key])
-                else:
-                    # Keep DB endpoint with 0 stats
-                    merged_items.append(db_item)
-
-            return {"items": merged_items, "total_count": db_result["total_count"]}
+            # ClickHouse is the single source of truth for this list: the same
+            # filters, ORDER BY {sort_column} and LIMIT/OFFSET already ran here,
+            # and total_count is count(DISTINCT (method, path)) over the same
+            # filters — so the page and the total agree, which is what correct
+            # server-side pagination needs. (Registered endpoints with no
+            # traffic in the window are intentionally not shown in the traffic
+            # table; they'd break the page/total agreement and aren't activity.)
+            return {"items": clickhouse_items, "total_count": int(total_count or 0)}
         except Exception as exc:
-            logger.warning("ClickHouse query failed for project endpoint stats: %s", exc)
-            # Fall back to PostgreSQL endpoint records
-            return AnalyticsService._get_endpoints_from_db(
-                project_id=project_id,
-                app_ids=app_ids,
-                methods=methods,
-                search_query=search_query,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-                page=page,
-                page_size=page_size,
-            )
-
-    @staticmethod
-    def _get_endpoints_from_db(
-        project_id: str,
-        app_ids: list[str] | None = None,
-        methods: list[str] | None = None,
-        search_query: str | None = None,
-        sort_by: str = "total_requests",
-        sort_dir: str = "desc",
-        page: int = 1,
-        page_size: int = 25,
-    ) -> dict:
-        """
-        Fallback to PostgreSQL when ClickHouse has no telemetry data.
-        Returns endpoint records from the database, grouped by (method, path).
-        """
-        from apps.projects.models import Endpoint
-        from django.db.models import Q, Max
-
-        # Start with base query for endpoints in this project
-        queryset = Endpoint.objects.filter(
-            app__project_id=project_id,
-            app__is_active=True,
-            is_active=True
-        )
-
-        # Filter by apps if specified
-        if app_ids:
-            queryset = queryset.filter(app_id__in=app_ids)
-
-        # Filter by methods
-        if methods:
-            queryset = queryset.filter(method__in=methods)
-
-        # Search filter
-        if search_query:
-            queryset = queryset.filter(
-                Q(path__icontains=search_query) | Q(method__icontains=search_query)
-            )
-
-        # Group by (method, path) and get the latest last_seen_at for each group
-        queryset = queryset.values("method", "path").annotate(
-            latest_seen=Max("last_seen_at")
-        )
-
-        # Get total count before pagination
-        total_count = queryset.count()
-
-        # Sorting - map analytics sort fields to database fields
-        sort_field_map = {
-            "endpoint": "path",
-            "total_requests": "-latest_seen",  # Most recent as proxy for popular
-            "error_rate": "path",
-            "avg_response_time_ms": "path",
-            "p95_response_time_ms": "path",
-        }
-        db_sort_field = sort_field_map.get(sort_by, "-latest_seen")
-        if sort_dir.lower() == "asc" and db_sort_field.startswith("-"):
-            db_sort_field = db_sort_field[1:]
-        elif sort_dir.lower() == "desc" and not db_sort_field.startswith("-"):
-            db_sort_field = f"-{db_sort_field}"
-
-        queryset = queryset.order_by(db_sort_field, "method", "path")
-
-        # Pagination
-        offset = (page - 1) * page_size
-        endpoints = queryset[offset:offset + page_size]
-
-        # Format as analytics response (with zeros for metrics)
-        items = []
-        for endpoint in endpoints:
-            items.append({
-                "method": endpoint["method"],
-                "path": endpoint["path"],
-                "total_requests": 0,
-                "error_count": 0,
-                "error_rate": 0.0,
-                "avg_response_time_ms": 0.0,
-                "p95_response_time_ms": 0.0,
-            })
-
-        return {"items": items, "total_count": total_count}
+            logger.warning("ClickHouse query failed for project endpoint stats; returning empty list: %s", exc)
+            return {"items": [], "total_count": 0}
 
     @staticmethod
     def get_project_environments(
@@ -3292,6 +3594,7 @@ class AnalyticsService:
         environment: str | None,
         since_dt,
         until_dt,
+        filter: str | None = None,
     ) -> tuple[list[str], dict]:
         params = {
             "project_id": project_id,
@@ -3313,6 +3616,12 @@ class AnalyticsService:
         if environment:
             filters.append("AND environment = %(environment)s")
             params["environment"] = environment
+        # Optional rich filter (status / consumer / latency / size / ip / …).
+        # method + path stay pinned above, so it only narrows within the
+        # endpoint the user is already scoped to.
+        clause = AnalyticsService.build_filter_clause(project_id, filter, params, key_prefix="epflt")
+        if clause:
+            filters.append(clause)
         return filters, params
 
     @staticmethod
@@ -3324,6 +3633,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        filter: str | None = None,
         threshold_ms: float = 500.0,
     ) -> dict:
         from core.database.clickhouse.client import get_clickhouse_client
@@ -3382,7 +3692,7 @@ class AnalyticsService:
 
         IngestService.ensure_base_url_column(client)
         filters, params = AnalyticsService._project_endpoint_filters(
-            project_id, method, path, app_ids, environment, since_dt, until_dt
+            project_id, method, path, app_ids, environment, since_dt, until_dt, filter
         )
         params["threshold"] = threshold_ms
         params["threshold4"] = threshold_ms * 4
@@ -3441,6 +3751,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        filter: str | None = None,
         timezone_name: str | None = None,
     ) -> list[dict]:
         from core.database.clickhouse.client import get_clickhouse_client
@@ -3453,7 +3764,7 @@ class AnalyticsService:
 
         since_dt, until_dt = _resolve_time_range(since, until)
         filters, params = AnalyticsService._project_endpoint_filters(
-            project_id, method, path, app_ids, environment, since_dt, until_dt
+            project_id, method, path, app_ids, environment, since_dt, until_dt, filter
         )
         params["timezone"] = _resolve_bucket_timezone(timezone_name)
 
@@ -3461,9 +3772,10 @@ class AnalyticsService:
             SELECT
                 toTimeZone(toStartOfHour(toTimeZone(timestamp, %(timezone)s)), 'UTC') AS bucket,
                 count() AS total_requests,
+                countIf(status_code >= 200 AND status_code < 300) AS success_count,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
                 countIf(status_code >= 400) AS error_count,
-                countIf(status_code >= 400 AND status_code < 500) AS client_errors,
-                countIf(status_code >= 500) AS server_errors,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.50)(response_time_ms) AS p50_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms,
@@ -3495,6 +3807,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        filter: str | None = None,
         limit: int = 10,
     ) -> list[dict]:
         from core.database.clickhouse.client import get_clickhouse_client
@@ -3508,7 +3821,7 @@ class AnalyticsService:
 
         since_dt, until_dt = _resolve_time_range(since, until)
         filters, params = AnalyticsService._project_endpoint_filters(
-            project_id, method, path, app_ids, environment, since_dt, until_dt
+            project_id, method, path, app_ids, environment, since_dt, until_dt, filter
         )
         params["limit"] = max(1, min(limit, 50))
 
@@ -3527,6 +3840,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms
             FROM api_requests
             {' '.join(filters)}
@@ -3778,6 +4095,10 @@ class AnalyticsService:
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                countIf(status_code >= 400 AND status_code < 500) AS client_error_count,
+                countIf(status_code >= 500) AS server_error_count,
+                if(count() > 0, countIf(status_code >= 400 AND status_code < 500) / count() * 100, 0) AS client_error_rate,
+                if(count() > 0, countIf(status_code >= 500) / count() * 100, 0) AS server_error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 max(timestamp) AS last_seen_at
             FROM api_requests
@@ -3802,6 +4123,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        filter: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
         from core.database.clickhouse.client import get_clickhouse_client
@@ -3814,7 +4136,7 @@ class AnalyticsService:
 
         since_dt, until_dt = _resolve_time_range(since, until)
         filters, params = AnalyticsService._project_endpoint_filters(
-            project_id, method, path, app_ids, environment, since_dt, until_dt
+            project_id, method, path, app_ids, environment, since_dt, until_dt, filter
         )
         params["limit"] = max(1, min(limit, 50))
 
@@ -3843,6 +4165,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        filter: str | None = None,
         limit: int = 20,
         errors_only: bool = False,
     ) -> list[dict]:
@@ -3858,10 +4181,11 @@ class AnalyticsService:
         IngestService.ensure_header_columns(client)
         IngestService.ensure_base_url_column(client)
         IngestService.ensure_trace_columns(client)
+        IngestService.ensure_raw_path_column(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         filters, params = AnalyticsService._project_endpoint_filters(
-            project_id, method, path, app_ids, environment, since_dt, until_dt
+            project_id, method, path, app_ids, environment, since_dt, until_dt, filter
         )
         if errors_only:
             filters.append("AND status_code >= 400")
@@ -3872,6 +4196,7 @@ class AnalyticsService:
                 timestamp,
                 method,
                 path,
+                raw_path,
                 status_code,
                 response_time_ms,
                 environment,
@@ -3923,6 +4248,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        filter: str | None = None,
         bins: int = 30,
     ) -> dict:
         from core.database.clickhouse.client import get_clickhouse_client
@@ -3936,7 +4262,7 @@ class AnalyticsService:
 
         since_dt, until_dt = _resolve_time_range(since, until)
         filters, params = AnalyticsService._project_endpoint_filters(
-            project_id, method, path, app_ids, environment, since_dt, until_dt
+            project_id, method, path, app_ids, environment, since_dt, until_dt, filter
         )
         bins = max(5, min(bins, 60))
 

@@ -621,6 +621,7 @@ def get_project_endpoint_detail(
     environment: str = None,
     since: str = None,
     until: str = None,
+    filter: str = None,
     threshold_ms: float = 500.0,
 ):
     """Get an aggregated summary for a single endpoint across a project."""
@@ -634,6 +635,7 @@ def get_project_endpoint_detail(
         environment=environment,
         since=since,
         until=until,
+        filter=filter,
         threshold_ms=threshold_ms,
     )
 
@@ -648,6 +650,7 @@ def get_project_endpoint_timeseries(
     environment: str = None,
     since: str = None,
     until: str = None,
+    filter: str = None,
     timezone: str = None,
 ):
     """Get hourly time-series for a single endpoint across a project."""
@@ -666,6 +669,7 @@ def get_project_endpoint_timeseries(
         environment=environment,
         since=since,
         until=until,
+        filter=filter,
         timezone_name=bucket_timezone,
     )
 
@@ -680,6 +684,7 @@ def get_project_endpoint_consumers(
     environment: str = None,
     since: str = None,
     until: str = None,
+    filter: str = None,
     limit: int = 10,
 ):
     """Get the top consumers for a single endpoint across a project."""
@@ -693,6 +698,7 @@ def get_project_endpoint_consumers(
         environment=environment,
         since=since,
         until=until,
+        filter=filter,
         limit=limit,
     )
 
@@ -707,6 +713,7 @@ def get_project_endpoint_status_codes(
     environment: str = None,
     since: str = None,
     until: str = None,
+    filter: str = None,
     limit: int = 20,
 ):
     """Get the status-code breakdown for a single endpoint across a project."""
@@ -720,6 +727,7 @@ def get_project_endpoint_status_codes(
         environment=environment,
         since=since,
         until=until,
+        filter=filter,
         limit=limit,
     )
 
@@ -734,6 +742,7 @@ def get_project_endpoint_requests(
     environment: str = None,
     since: str = None,
     until: str = None,
+    filter: str = None,
     limit: int = 20,
     errors_only: bool = False,
 ):
@@ -748,6 +757,7 @@ def get_project_endpoint_requests(
         environment=environment,
         since=since,
         until=until,
+        filter=filter,
         limit=limit,
         errors_only=errors_only,
     )
@@ -763,6 +773,7 @@ def get_project_endpoint_histograms(
     environment: str = None,
     since: str = None,
     until: str = None,
+    filter: str = None,
     bins: int = 30,
 ):
     """Get response-time and response-size histograms for a single endpoint."""
@@ -776,7 +787,112 @@ def get_project_endpoint_histograms(
         environment=environment,
         since=since,
         until=until,
+        filter=filter,
         bins=bins,
+    )
+
+
+# ── Project-level Errors (exception-centric views over api_logs) ─────
+
+@router.get("/{project_slug}/analytics/error-summary", response=dict)
+def get_project_error_summary(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+):
+    """Overview tiles for the Errors page: 4xx/5xx counts + unique issues."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return DataQueryService.get_project_error_summary(
+        project_id=str(project.id),
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+    )
+
+
+@router.get("/{project_slug}/analytics/error-issues", response=list[dict])
+def get_project_error_issues(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    search: str = None,
+    limit: int = 100,
+):
+    """Errors grouped into issues by (method, path, status, message)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return DataQueryService.get_project_error_issues(
+        project_id=str(project.id),
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        search=search,
+        limit=limit,
+    )
+
+
+@router.get("/{project_slug}/analytics/error-events", response=list[dict])
+def get_project_error_events(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    method: str = None,
+    path: str = None,
+    message: str = None,
+    trace_id: str = None,
+    limit: int = 50,
+):
+    """Individual ERROR events (flat feed, or a single issue's occurrences)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return DataQueryService.get_project_error_events(
+        project_id=str(project.id),
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        method=method,
+        path=path,
+        message=message,
+        trace_id=trace_id,
+        limit=limit,
+    )
+
+
+@router.get("/{project_slug}/analytics/error-status-groups", response=list[dict])
+def get_project_error_status_groups(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    search: str = None,
+    limit: int = 200,
+):
+    """Errors grouped by (status_code, method, path) — the errors table (incl. 4xx)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return DataQueryService.get_project_error_status_groups(
+        project_id=str(project.id),
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        search=search,
+        limit=limit,
     )
 
 

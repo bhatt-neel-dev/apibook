@@ -30,7 +30,7 @@ MAX_LOG_ATTRIBUTES = 64
 
 REQUEST_COLUMNS = [
     "timestamp", "app_id", "project_id", "endpoint_id", "environment", "method",
-    "path", "status_code", "response_time_ms", "request_size", "response_size",
+    "path", "raw_path", "status_code", "response_time_ms", "request_size", "response_size",
     "ip_address", "user_agent", "consumer_id", "consumer_name", "consumer_group",
     "request_payload", "response_payload", "request_headers", "response_headers",
     "base_url", "trace_id", "span_id",
@@ -134,6 +134,7 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS base_url String DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS raw_path String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS trace_id String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS span_id String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD INDEX IF NOT EXISTS idx_api_requests_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
@@ -290,7 +291,8 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
             method = r.method.upper()
             rows.append((
                 r.timestamp, app_uuid, project_id, emap.get((method, r.path), ""),
-                r.environment, method, r.path, r.status_code, r.response_time_ms,
+                r.environment, method, r.path, (r.raw_path or r.path),
+                r.status_code, r.response_time_ms,
                 r.request_size, r.response_size, r.ip_address, r.user_agent,
                 (r.consumer_id or "")[:256], (r.consumer_name or "")[:256],
                 (r.consumer_group or "")[:256],

@@ -183,6 +183,9 @@ class RequestItemResponse(Schema):
     environment: str
     method: str
     path: str
+    # Exact request URL; `path` is the grouping template. Defaults to `path`
+    # for rows ingested before raw_path existed.
+    raw_path: str = ""
     status_code: int
     response_time_ms: float
     request_size: int
@@ -224,8 +227,13 @@ class TraceQueryResponse(Schema):
 class AnalyticsTimeseriesPointResponse(Schema):
     bucket: datetime
     total_requests: int
+    success_count: int = 0
+    client_error_count: int = 0
+    server_error_count: int = 0
     error_count: int
     error_rate: float
+    client_error_rate: float = 0.0
+    server_error_rate: float = 0.0
     avg_response_time_ms: float
     p95_response_time_ms: float
     total_request_bytes: int

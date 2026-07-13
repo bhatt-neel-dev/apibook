@@ -56,9 +56,10 @@ export interface EndpointDetail {
 export interface TimeseriesPoint {
   bucket: string;
   total_requests: number;
+  success_count: number;
+  client_error_count: number;
+  server_error_count: number;
   error_count: number;
-  client_errors: number;
-  server_errors: number;
   avg_response_time_ms: number;
   p50_response_time_ms: number;
   p95_response_time_ms: number;
@@ -73,6 +74,10 @@ export interface ConsumerRow {
   total_requests: number;
   error_count: number;
   error_rate: number;
+  client_error_rate?: number;
+  server_error_rate?: number;
+  client_error_count?: number;
+  server_error_count?: number;
   avg_response_time_ms: number;
 }
 
@@ -85,6 +90,8 @@ export interface RequestRow {
   timestamp: string;
   method: string;
   path: string;
+  // Exact request URL; `path` is the endpoint template. Falls back to `path`.
+  raw_path?: string;
   status_code: number;
   response_time_ms: number;
   environment: string;
@@ -113,8 +120,8 @@ export type StatusFilter = (typeof STATUS_FILTERS)[number];
 /* ── Chart palette ───────────────────────────────────────────────────── */
 
 export const ACCENT = "#14b8a6";
-export const CLIENT_ERR = "#f59e0b";
-export const SERVER_ERR = "#f87171";
+export const CLIENT_ERR = "#fca5a5"; // client 4xx — light red
+export const SERVER_ERR = "#f87171"; // server 5xx — soft red
 export const P50 = "#38bdf8";
 export const P95 = "#fbbf24";
 export const P99 = "#f87171";
@@ -215,6 +222,29 @@ export function statusBarClass(status: number): string {
   return "is-2xx";
 }
 
+export function errRateToneClass(rate: number): string {
+  if (rate >= 5) return "tf-err-bad";
+  if (rate >= 1) return "tf-err-warn";
+  return "";
+}
+
+// Overall error rate with the client (4xx) / server (5xx) split beneath it.
+// Shared by the Consumers table, the endpoint inspector, and endpoint detail
+// so the bifurcation reads identically everywhere. Zeroes render muted.
+export function ErrorSplit({ overall, client, server }: { overall: number; client?: number; server?: number }) {
+  const c = client ?? 0;
+  const s = server ?? 0;
+  return (
+    <div className="err-split">
+      <span className={`err-split-total ${errRateToneClass(overall || 0)}`}>{(overall || 0).toFixed(1)}%</span>
+      <span className="err-split-sub">
+        <span className={c > 0 ? "err-4xx" : "err-muted"}>4xx {c.toFixed(1)}%</span>
+        <span className={s > 0 ? "err-5xx" : "err-muted"}>5xx {s.toFixed(1)}%</span>
+      </span>
+    </div>
+  );
+}
+
 /* ── Shared building blocks ──────────────────────────────────────────── */
 
 export function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -291,6 +321,14 @@ export function InfoSection({ detail }: { detail: EndpointDetail | null }) {
         <InfoRow label="Total requests" value={formatNumber(detail.total_requests)} />
         <InfoRow label="Requests / min" value={(detail.requests_per_minute || 0).toFixed(2)} />
         <InfoRow label="Error rate" value={`${(detail.error_rate || 0).toFixed(2)}%`} />
+        <InfoRow
+          label="Client errors (4xx)"
+          value={`${formatNumber(detail.client_errors || 0)} · ${(detail.total_requests ? (detail.client_errors / detail.total_requests) * 100 : 0).toFixed(2)}%`}
+        />
+        <InfoRow
+          label="Server errors (5xx)"
+          value={`${formatNumber(detail.server_errors || 0)} · ${(detail.total_requests ? (detail.server_errors / detail.total_requests) * 100 : 0).toFixed(2)}%`}
+        />
         <InfoRow label="p50 / p95 latency" value={`${formatMs(detail.p50_response_time_ms)} / ${formatMs(detail.p95_response_time_ms)}`} />
         <InfoRow label="Apdex" value={detail.apdex ? detail.apdex.toFixed(3) : "—"} />
         {detail.threshold_ms ? <InfoRow label="Apdex threshold" value={formatMs(detail.threshold_ms)} /> : null}
@@ -307,9 +345,9 @@ export function TrafficSection({ timeseries }: { timeseries: TimeseriesPoint[] |
   const chartData = (timeseries || []).map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
-    success: Math.max(0, p.total_requests - p.error_count),
-    client: p.client_errors,
-    server: p.server_errors,
+    success: p.success_count,
+    client: p.client_error_count,
+    server: p.server_error_count,
   }));
   const hasData = chartData.some((d) => d.success > 0 || d.client > 0 || d.server > 0);
   return (
@@ -606,10 +644,15 @@ export function RequestsTable({ rows, baseUrl, emptyMessage }: { rows: RequestRo
 
 export const CURL_BASE_URL_KEY = "apilens:curl-base-url";
 
+// Exact request URL for display/curl; `path` (template) drives grouping.
+export function requestUrl(row: { raw_path?: string; path: string }): string {
+  return row.raw_path || row.path;
+}
+
 export function buildCurl(row: RequestRow, baseUrl: string): string {
   const base = (baseUrl || "").replace(/\/$/, "") || "YOUR_BASE_URL";
   const body = formatPayload(row.request_payload);
-  const lines: string[] = [`curl -X ${row.method} "${base}${row.path}"`];
+  const lines: string[] = [`curl -X ${row.method} "${base}${requestUrl(row)}"`];
   if (body) {
     lines.push(`  -H "Content-Type: application/json"`);
     lines.push(`  -d '${body.replace(/'/g, "'\\''")}'`);
@@ -740,7 +783,7 @@ export function RequestPayloadModal({ row, baseUrl: detectedBaseUrl, onClose }: 
       title={
         <>
           <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-          <span className="request-payload-path">{row.path}</span>
+          <span className="request-payload-path">{requestUrl(row)}</span>
           <StatusPill tone={statusCodeTone(row.status_code)}>{row.status_code}</StatusPill>
         </>
       }

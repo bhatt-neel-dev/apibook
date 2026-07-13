@@ -35,6 +35,8 @@ export default async function ProjectTrafficPage({
         sort: one(sp.sort),
         consumer: one(sp.consumer),
         filter: one(sp.filter),
+        ep_method: one(sp.ep_method),
+        ep_path: one(sp.ep_path),
       }}
     />
   );

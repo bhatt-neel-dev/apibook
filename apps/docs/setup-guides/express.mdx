@@ -1,0 +1,69 @@
+---
+title: "Express"
+description: "Monitor an Express API with the APILens JavaScript SDK (beta)."
+---
+
+<Warning>
+The JavaScript SDK (`apilens-js-sdk`, v0.1.x) is **beta** and currently covers Express only. It captures metrics and request logs; automatic tracing and error-trace capture are Python-SDK features for now — see the [roadmap](/roadmap).
+</Warning>
+
+## Install
+
+```bash
+npm install apilens-js-sdk
+```
+
+## Add the middleware
+
+```javascript
+import express from "express";
+import { useApiLens } from "apilens-js-sdk";
+
+const app = express();
+
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: "storefront-web",        // the app's slug from your APILens project
+  environment: "production",
+});
+```
+
+`useApiLens` registers the middleware and attaches the client to the app (also exported as `instrumentExpress`). Register it **before** your routes so it wraps them.
+
+## Identify consumers
+
+Set the consumer on the request once your auth middleware knows who is calling:
+
+```javascript
+import { setConsumer } from "apilens-js-sdk";
+
+app.use((req, res, next) => {
+  if (req.user) {
+    setConsumer(req, { id: req.user.id, name: req.user.email, group: req.user.plan });
+  }
+  next();
+});
+```
+
+A string works too (`setConsumer(req, "acme-corp")`), or pass a centralized `getConsumer(req, res)` resolver in the config.
+
+## Client options
+
+The config accepts both camelCase and snake_case keys. The client mirrors the Python SDK's delivery behavior:
+
+| Option | Default | Notes |
+|---|---|---|
+| `apiKey` | — (required) | Project-level key |
+| `appId` | `""` | App slug — set it |
+| `baseUrl` | `https://ingest.apilens.ai/v1` | Ingest endpoint |
+| `environment` | `"production"` | |
+| `batchSize` | `200` | Flush trigger |
+| `flushIntervalMs` | `3000` | Background flush cadence |
+| `maxQueueSize` | `10000` | Oldest records dropped when full |
+| `maxRetries` | `3` | With exponential backoff |
+| `enabled` | `true` | Master kill switch |
+| `requestLogging` | — | Header/body capture configuration |
+
+## Verify
+
+Send a few requests and open the **Traffic** page — your Express app's endpoints appear alongside your other services in the project.

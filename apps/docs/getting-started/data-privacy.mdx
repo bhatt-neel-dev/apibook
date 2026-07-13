@@ -1,0 +1,65 @@
+---
+title: "Data privacy"
+description: "Exactly what the SDK captures, what it redacts, and how to turn any of it off."
+---
+
+Observability tools see sensitive traffic, so this page is deliberately blunt about defaults. Where APILens captures something by default, we say so — and show you the switch.
+
+## What is captured per request
+
+| Data | Captured by default? | Control |
+|---|---|---|
+| Method, path template, status, response time | Yes | `enabled=False` disables everything |
+| Request/response sizes, client IP, user agent | Yes | — |
+| Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False` |
+| Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, or `log_request_body` / `log_response_body` individually |
+| Consumer identity | **No** — only what you explicitly set | `set_consumer(...)` |
+| Trace spans | Yes (timing + endpoint/URL names, no payloads) | `capture_spans=False` or `APILENS_CAPTURE_SPANS=false` |
+| Error stack traces | Yes, on unhandled exception or 5xx | disabled along with spans |
+
+<Warning>
+Unlike some tools that ship with request logging off, APILens captures headers and bodies **by default** so the request log is useful from minute one. If your API handles regulated data, decide deliberately: keep it, scope it down, or turn it off before deploying.
+</Warning>
+
+## Automatic header redaction
+
+Values of these headers are replaced with `[redacted]` before leaving your process:
+
+`authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `api-key`, `x-auth-token`, `x-amz-security-token`, `x-csrf-token`
+
+Serialized headers are additionally capped at 8 KB per side, dropping the longest values first.
+
+## Turning capture down (or off)
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    enable_request_logging=False,   # no headers, no bodies
+    # or, more surgical:
+    log_request_body=False,
+    log_response_body=False,
+    capture_headers=False,
+    max_payload_bytes=4096,         # keep bodies but cap them tighter (0 = none)
+)
+```
+
+Two environment variables act as deploy-time kill switches, overriding code:
+
+- `APILENS_CAPTURE_SPANS=false` — stop all span and error-trace capture
+- `APILENS_PARAMETRIZE_PATHS=false` — disable heuristic path templating
+
+## What APILens never does
+
+- **Never reads or infers identity.** No decoding of `Authorization` headers, JWTs, or sessions. The Consumers page shows only what your code passes to `set_consumer()`.
+- **Never blocks or breaks a request.** Telemetry failures are retried and then dropped silently; nothing propagates into your handlers.
+- **Never traces its own traffic.** The SDK's calls to the ingest endpoints are excluded from spans.
+
+## Field-level masking
+
+Regex- or callback-based masking of individual body fields and query parameters is **not available yet** — it's on the [roadmap](/roadmap). Until then, the honest options are the body/header switches above.
+
+<Note>
+Data is stored in ClickHouse (telemetry) and Postgres (metadata) operated by APILens. If you need data to stay entirely on your infrastructure, point `base_url` at a self-hosted ingest service — see the [Ingest API](/ingest/ingest-api).
+</Note>

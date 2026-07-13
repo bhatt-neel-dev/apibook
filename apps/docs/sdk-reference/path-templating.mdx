@@ -1,0 +1,58 @@
+---
+title: "Path templating"
+description: "How /product/42 and /product/324 become one endpoint — without losing the exact URL."
+---
+
+If endpoints were keyed by raw URL, every ID-bearing route would explode into thousands of one-request "endpoints" and per-endpoint metrics would be useless. APILens groups requests by **route template** — and keeps the exact URL alongside, so grouping never costs you information.
+
+```
+GET /products/42        ─┐
+GET /products/324        ├──▶  endpoint: GET /products/{product_id}
+GET /products/9000      ─┘      each request keeps raw_path = "/products/42", ...
+```
+
+## Where templates come from
+
+**1. Your framework's route table (preferred).** The SDK asks the framework which route actually matched, so the template uses *your* parameter names:
+
+| Framework | Source |
+|---|---|
+| FastAPI / Starlette | matched `route.path`, including routes inside `Mount`s (and FastAPI ≥ 0.138 route context) |
+| Django | `resolver_match.route` — `path()` converters and `re_path()` named groups both normalize to `{name}` |
+| Flask | URL-map match — `<int:order_id>` → `{order_id}` |
+| Litestar | the matched route handler's path |
+| BlackSheep | the router's matched pattern |
+
+**2. Heuristic fallback.** When no route is available (generic middleware, unmatched paths), segments that look like IDs are parametrized:
+
+| Segment looks like | Becomes |
+|---|---|
+| Integer (`42`) | `{id}` |
+| UUID | `{uuid}` |
+| ULID | `{id}` |
+| Long hex, ≥ 24 chars (`659f1e0c...`) | `{hash}` |
+| Mixed alphanumeric with digits, ≥ 16 chars | `{id}` |
+
+**3. Your own resolver.** For URL schemes the heuristic can't know (e.g. `/files/report-2026-q2.pdf`), pass `route_resolver` to the middleware and return the template yourself.
+
+## The raw path is never lost
+
+Every request record carries both fields: `path` (the template, used for grouping) and `raw_path` (the exact URL as received). The request log displays templates for scanning; the request detail shows exactly what was called. Query strings are stripped from the template but preserved on the raw path.
+
+## Controls
+
+```python
+# per-app
+app.add_middleware(ApiLensMiddleware, ..., parametrize_paths=False)
+```
+
+```bash
+# deploy-time kill switch for the heuristic (overrides code)
+APILENS_PARAMETRIZE_PATHS=false
+```
+
+Turning it off affects only the **heuristic fallback** — templates that come from your framework's route table are always used, because they're exact.
+
+<Tip>
+Seeing an endpoint split into near-duplicates (`/orders/{id}` and `/orders/{order_id}`)? That usually means some traffic matched a route and some didn't (404s, or a proxy rewriting paths). Check the raw paths of a few requests in each group.
+</Tip>

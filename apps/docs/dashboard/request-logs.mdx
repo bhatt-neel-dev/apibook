@@ -1,0 +1,36 @@
+---
+title: "Request logs"
+description: "Every individual request, searchable and drillable — down to headers, payloads, and a copyable cURL."
+---
+
+Aggregates tell you *that* something is wrong; the request log tells you *what happened*. APILens keeps individual request records so you can go from "5xx spiked at 15:07" to the exact failing request, its payload, and its stack trace.
+
+<Frame caption="The request log stream — note templated paths like /products/{product_id}/description">
+  <img src="/images/request-logs.png" alt="Request logs page" />
+</Frame>
+
+Each row shows time, status, method and **templated path**, environment, consumer, response size, and response time. The filter bar accepts the same expressions as the Traffic page (`status:>=500 path:~/v1/orders`), so you can isolate one consumer's failures in seconds.
+
+<Tip>
+Paths are grouped by route template (`/products/{product_id}`), but the exact URL of every request is preserved and shown in its detail view. You get clean grouping *and* full fidelity — see [Path templating](/sdk-reference/path-templating).
+</Tip>
+
+## Request detail
+
+Clicking a row opens the request detail modal:
+
+<Frame caption="Details tab of a failed POST /charge">
+  <img src="/images/request-detail.png" alt="Request detail modal" />
+</Frame>
+
+- **Details** — status, host, client IP, consumer (with a one-click filter link), environment, trace ID, user agent, and size/timing cards.
+- **Headers** — request and response headers as captured. Sensitive values (`Authorization`, cookies, API keys, …) arrive already `[redacted]` — redaction happens in the SDK, before data leaves your process.
+- **Payload** — request and response bodies with JSON highlighting and copy buttons, truncated at the SDK's `max_payload_bytes` (64 KB default).
+- **Trace** — the span waterfall and any error messages for this request. See [Tracing](/dashboard/tracing).
+- **Related** — chronological neighbors from the same endpoint and from the same consumer, opened as stacked modals so you can walk a sequence of calls without losing your place.
+
+The **cURL** button in the header copies the request as a ready-to-run cURL command — handy for reproducing a failure locally.
+
+<Note>
+Request bodies and headers are captured by default. If that's not right for your API, the switches are documented in [Data privacy](/getting-started/data-privacy).
+</Note>

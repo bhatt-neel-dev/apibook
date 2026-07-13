@@ -11,6 +11,10 @@ from .client import ApiLensClient
 class CaptureContext:
     method: str
     path: str
+    # The exact request path as received (``/product/123``). ``path`` holds the
+    # grouping template (``/product/{id}``); this preserves the real URL for the
+    # request log. Defaults to ``path`` when a caller doesn't set it.
+    raw_path: str = ""
     project_slug: str = ""
     app_id: str = ""
     request_size: int = 0
@@ -112,6 +116,7 @@ def capture_response(
     client.capture(
         method=ctx.method,
         path=ctx.path,
+        raw_path=ctx.raw_path or ctx.path,
         project_slug=ctx.project_slug,
         status_code=status_code,
         response_time_ms=elapsed_ms,

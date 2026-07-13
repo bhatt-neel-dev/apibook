@@ -12,6 +12,8 @@ class RequestRecord:
     path: str
     status_code: int
     response_time_ms: float
+    # Exact request path for the log; ``path`` is the grouping template.
+    raw_path: str = ""
     project_slug: str = ""
     app_id: str = ""  # Required by backend API
     request_size: int = 0
@@ -40,6 +42,9 @@ class RequestRecord:
         path = self.path or "/"
         if not path.startswith("/"):
             path = f"/{path}"
+        raw_path = self.raw_path or path
+        if not raw_path.startswith("/"):
+            raw_path = f"/{raw_path}"
 
         return {
             "project_slug": self.project_slug or "",
@@ -48,6 +53,7 @@ class RequestRecord:
             "environment": self.environment,
             "method": (self.method or "GET").upper(),
             "path": path,
+            "raw_path": raw_path,
             "status_code": int(self.status_code),
             "response_time_ms": float(self.response_time_ms),
             "request_size": int(self.request_size or 0),
@@ -109,5 +115,54 @@ class SpanRecord:
             "duration_ms": float(self.duration_ms or 0.0),
             "status": (self.status or "ok").lower(),
             "status_code": int(self.status_code or 0),
+            "attributes": {str(k): str(v) for k, v in (self.attributes or {}).items()},
+        }
+
+
+@dataclass(slots=True)
+class LogRecord:
+    """One log line correlated to a trace (the unit sent to /v1/logs).
+
+    APILens emits these automatically for errors — an unhandled exception or a
+    5xx response — so the failing request's trace carries its message. It is
+    not a general application-logging API.
+    """
+
+    timestamp: datetime
+    environment: str
+    level: str
+    message: str
+    trace_id: str
+    span_id: str = ""
+    logger_name: str = ""
+    endpoint_method: str = ""
+    endpoint_path: str = ""
+    status_code: int = 0
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
+    project_slug: str = ""
+    app_id: str = ""
+    payload: str = ""
+    attributes: dict[str, str] | None = None
+
+    def to_wire(self) -> dict[str, object]:
+        return {
+            "project_slug": self.project_slug or "",
+            "app_id": self.app_id or "",
+            "timestamp": _iso_utc(self.timestamp),
+            "environment": self.environment,
+            "level": (self.level or "INFO").upper(),
+            "message": self.message or "",
+            "logger_name": self.logger_name or "",
+            "endpoint_method": (self.endpoint_method or "").upper(),
+            "endpoint_path": self.endpoint_path or "",
+            "status_code": int(self.status_code or 0),
+            "consumer_id": self.consumer_id or "",
+            "consumer_name": self.consumer_name or "",
+            "consumer_group": self.consumer_group or "",
+            "trace_id": self.trace_id or "",
+            "span_id": self.span_id or "",
+            "payload": self.payload or "",
             "attributes": {str(k): str(v) for k, v in (self.attributes or {}).items()},
         }

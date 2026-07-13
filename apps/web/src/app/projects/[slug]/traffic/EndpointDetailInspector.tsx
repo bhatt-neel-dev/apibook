@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   ArrowUpFromLine,
   Bug,
+  Check,
   ChevronDown,
   ChevronRight,
   CircleX,
@@ -15,6 +16,7 @@ import {
   Gauge,
   Hash,
   Layers,
+  Link2,
   Loader,
   Smile,
   Timer,
@@ -49,6 +51,7 @@ import {
   formatLatencyBucket,
   formatMs,
   formatNumber,
+  requestUrl,
   statusTone,
   type ConsumerRow,
   type EndpointDetail,
@@ -140,15 +143,35 @@ function StatCard({
   value,
   sub,
   tone,
+  onClick,
+  hint,
 }: {
   label: string;
   icon: React.ReactNode;
   value: string;
   sub?: string;
   tone?: CardTone;
+  // When provided the card becomes a button that jumps to a related tab/section.
+  onClick?: () => void;
+  hint?: string;
 }) {
+  const clickable = !!onClick;
+  const interactive = clickable
+    ? {
+        role: "button" as const,
+        tabIndex: 0,
+        title: hint,
+        onClick,
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        },
+      }
+    : {};
   return (
-    <div className="ep-statcard">
+    <div className={`ep-statcard${clickable ? " ep-statcard-clickable" : ""}`} {...interactive}>
       <div className="ep-statcard-label">{label}</div>
       <div className="ep-statcard-main">
         <span className={`ep-statcard-icon${tone ? ` tone-${tone}` : ""}`}>{icon}</span>
@@ -164,18 +187,30 @@ function StatCard({
 function RecentRequests({
   rows,
   errorsOnly = false,
+  statusClass,
   onSelect,
   onConsumer,
 }: {
   rows: RequestRow[] | null;
   errorsOnly?: boolean;
+  // Narrow the error list to one class when set (used by the Errors tab).
+  statusClass?: "4xx" | "5xx";
   onSelect: (r: RequestRow) => void;
   onConsumer?: (consumer: string) => void;
 }) {
   if (rows === null) return <Skeleton height={200} />;
-  const list = errorsOnly ? rows.filter((r) => isErrorStatus(r.status_code)) : rows;
+  const inScope = (code: number) =>
+    statusClass === "4xx" ? code >= 400 && code < 500 : statusClass === "5xx" ? code >= 500 : isErrorStatus(code);
+  const list = errorsOnly ? rows.filter((r) => inScope(r.status_code)) : rows;
   if (list.length === 0) {
-    return <EmptyBlock message={errorsOnly ? "No client or server errors in the selected period." : "No logged requests."} />;
+    const emptyMsg = !errorsOnly
+      ? "No logged requests."
+      : statusClass === "4xx"
+        ? "No client (4xx) errors in the selected period."
+        : statusClass === "5xx"
+          ? "No server (5xx) errors in the selected period."
+          : "No client or server errors in the selected period.";
+    return <EmptyBlock message={emptyMsg} />;
   }
   return (
     <div className="ep-recent">
@@ -217,7 +252,7 @@ function RecentRequests({
                 <td className="ep-recent-req">
                   <div className="ep-recent-req-line">
                     <span className="ep-recent-method">{r.method}</span>
-                    <span className="ep-recent-path">{r.path}</span>
+                    <span className="ep-recent-path">{requestUrl(r)}</span>
                   </div>
                   <div className="ep-recent-meta">
                     {r.environment ? <span className="ep-recent-fact"><Layers size={12} />{r.environment}</span> : null}
@@ -283,9 +318,9 @@ function RequestsOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null
   const data = timeseries.map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
-    success: Math.max(0, p.total_requests - p.error_count),
-    client: p.client_errors,
-    server: p.server_errors,
+    success: p.success_count,
+    client: p.client_error_count,
+    server: p.server_error_count,
   }));
   if (!data.some((d) => d.success || d.client || d.server)) return <EmptyBlock message="No requests in the selected period." />;
   return (
@@ -306,14 +341,22 @@ function RequestsOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null
   );
 }
 
-function ErrorsOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null }) {
+function ErrorsOverTime({
+  timeseries,
+  classFilter = "all",
+}: {
+  timeseries: TimeseriesPoint[] | null;
+  classFilter?: "all" | "4xx" | "5xx";
+}) {
   if (timeseries === null) return <Skeleton height={220} />;
   const data = timeseries.map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
-    client: p.client_errors,
-    server: p.server_errors,
+    client: p.client_error_count,
+    server: p.server_error_count,
   }));
+  const showClient = classFilter !== "5xx";
+  const showServer = classFilter !== "4xx";
   return (
     <Chart
       height={220}
@@ -323,8 +366,8 @@ function ErrorsOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null }
           <XAxis dataKey="label" tick={AXIS_TICK} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }} />
           <YAxis tick={AXIS_TICK} allowDecimals={false} tickLine={false} axisLine={false} width={36} />
           <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(248,113,113,0.08)" }} />
-          <Bar dataKey="client" name="Client (4xx)" stackId="e" fill={CLIENT_ERR} maxBarSize={30} />
-          <Bar dataKey="server" name="Server (5xx)" stackId="e" fill={SERVER_ERR} radius={[3, 3, 0, 0]} maxBarSize={30} />
+          {showClient && <Bar dataKey="client" name="Client (4xx)" stackId="e" fill={CLIENT_ERR} radius={showServer ? undefined : [3, 3, 0, 0]} maxBarSize={30} />}
+          {showServer && <Bar dataKey="server" name="Server (5xx)" stackId="e" fill={SERVER_ERR} radius={[3, 3, 0, 0]} maxBarSize={30} />}
         </BarChart>
       )}
     />
@@ -459,7 +502,8 @@ function ConsumersTable({ consumers, onConsumer }: { consumers: ConsumerRow[] | 
             <th aria-hidden />
             <th>Consumer name</th>
             <th className="ep-th-num">Requests</th>
-            <th className="ep-th-num">Error rate</th>
+            <th className="ep-th-num">Client 4xx</th>
+            <th className="ep-th-num">Server 5xx</th>
             <th className="ep-th-num">Avg response</th>
           </tr>
         </thead>
@@ -487,8 +531,11 @@ function ConsumersTable({ consumers, onConsumer }: { consumers: ConsumerRow[] | 
                   <span className="ep-cbar-val">{formatNumber(c.total_requests)}</span>
                 </span>
               </td>
-              <td className={`ep-td-num${(c.error_rate || 0) >= 5 ? " tone-bad" : (c.error_rate || 0) >= 1 ? " tone-warn" : ""}`}>
-                {(c.error_rate || 0).toFixed(1)} %
+              <td className={`ep-td-num${(c.client_error_rate || 0) > 0 ? " err-4xx" : ""}`}>
+                {(c.client_error_rate || 0).toFixed(1)} %
+              </td>
+              <td className={`ep-td-num${(c.server_error_rate || 0) > 0 ? " err-5xx" : ""}`}>
+                {(c.server_error_rate || 0).toFixed(1)} %
               </td>
               <td className="ep-td-num">{formatMs(c.avg_response_time_ms)}</td>
             </tr>
@@ -499,10 +546,24 @@ function ConsumersTable({ consumers, onConsumer }: { consumers: ConsumerRow[] | 
   );
 }
 
-function ErrorsByStatus({ statusCodes }: { statusCodes: StatusCodeRow[] | null }) {
+function ErrorsByStatus({
+  statusCodes,
+  classFilter = "all",
+}: {
+  statusCodes: StatusCodeRow[] | null;
+  classFilter?: "all" | "4xx" | "5xx";
+}) {
   if (statusCodes === null) return <Skeleton height={120} />;
-  const codes = statusCodes.filter((s) => isErrorStatus(s.status_code)).sort((a, b) => b.total_requests - a.total_requests);
-  if (codes.length === 0) return <EmptyBlock message="No errors in the selected period." />;
+  const inScope = (code: number) =>
+    classFilter === "4xx" ? code >= 400 && code < 500 : classFilter === "5xx" ? code >= 500 : isErrorStatus(code);
+  const codes = statusCodes.filter((s) => inScope(s.status_code)).sort((a, b) => b.total_requests - a.total_requests);
+  if (codes.length === 0) {
+    const msg =
+      classFilter === "4xx" ? "No client (4xx) errors in the selected period."
+      : classFilter === "5xx" ? "No server (5xx) errors in the selected period."
+      : "No errors in the selected period.";
+    return <EmptyBlock message={msg} />;
+  }
   const total = codes.reduce((a, s) => a + s.total_requests, 0);
   return (
     <div className="endpoint-status-breakdown">
@@ -552,6 +613,29 @@ export default function EndpointDetailInspector({
 }: EndpointDetailInspectorProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("requests");
+  // When the Errors tab is opened from a summary card, narrow it to that class.
+  const [errorClass, setErrorClass] = useState<"all" | "4xx" | "5xx">("all");
+  // Lets the "Total requests" card jump straight to the request-log section.
+  const recentRef = useRef<HTMLDivElement>(null);
+
+  const goToErrors = useCallback((cls: "4xx" | "5xx") => {
+    setErrorClass(cls);
+    setActiveTab("errors");
+  }, []);
+  const scrollToLog = useCallback(() => {
+    recentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  // The parent mirrors the open endpoint into the URL (ep_method/ep_path), so
+  // the current address bar is already a shareable deep link to this view.
+  const [copiedLink, setCopiedLink] = useState(false);
+  const copyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  }, []);
 
   const [detail, setDetail] = useState<EndpointDetail | null>(null);
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[] | null>(null);
@@ -583,16 +667,35 @@ export default function EndpointDetailInspector({
     };
   }, []);
 
+  // Freeze the query window at open time. The parent Traffic page live-polls
+  // every 5s and slides its rolling window (since/until = now-24h … now); if we
+  // tracked that, every widget below would reset + refetch every 5s and flicker.
+  // We snapshot the window when the panel opens and re-freeze only when a
+  // different endpoint is opened (method/path changes).
+  const idKey = `${method} ${path}`;
+  const [frozen, setFrozen] = useState({ since, until });
+  const prevIdRef = useRef(idKey);
+  useEffect(() => {
+    if (prevIdRef.current !== idKey) {
+      prevIdRef.current = idKey;
+      setFrozen({ since, until });
+    }
+  }, [idKey, since, until]);
+
+  // Key on the JOINED slug string, not the array — the parent passes a fresh
+  // array literal every render (`… ? [] : selectedAppSlugs`), which would
+  // otherwise churn baseParams (and refetch) on every 5s poll.
+  const appSlugsKey = appSlugs.join(",");
   const baseParams = useMemo(() => {
     const params = new URLSearchParams();
     params.set("method", method);
     params.set("path", path);
-    if (appSlugs.length) params.set("app_slugs", appSlugs.join(","));
-    params.set("since", since);
-    if (until) params.set("until", until);
+    if (appSlugsKey) params.set("app_slugs", appSlugsKey);
+    params.set("since", frozen.since);
+    if (frozen.until) params.set("until", frozen.until);
     if (environment) params.set("environment", environment);
     return params;
-  }, [method, path, appSlugs, since, until, environment]);
+  }, [method, path, appSlugsKey, frozen.since, frozen.until, environment]);
 
   useEffect(() => {
     reqIdRef.current += 1;
@@ -658,9 +761,12 @@ export default function EndpointDetailInspector({
       p.set("path", path);
       if (environment) p.set("env", environment);
       if (appSlugs.length) p.set("apps", appSlugs.join(","));
-      const end = until ? new Date(until).getTime() : Date.now();
-      const hours = Math.round((end - new Date(since).getTime()) / 3_600_000);
-      if (hours && hours !== 24) p.set("range", String(hours));
+      // Carry the exact on-screen window as since/until so the Endpoints page
+      // resolves the same range (it reads these as a custom range). Sending a
+      // raw hour count as `range` doesn't parse and silently falls back to 24h,
+      // hiding requests older than a day.
+      p.set("since", since);
+      p.set("until", until ?? new Date().toISOString());
       p.set("req", r.timestamp);
       router.push(`/projects/${projectSlug}/endpoints?${p.toString()}`);
     },
@@ -676,9 +782,10 @@ export default function EndpointDetailInspector({
       p.set("consumer", consumer);
       if (environment) p.set("env", environment);
       if (appSlugs.length) p.set("apps", appSlugs.join(","));
-      const end = until ? new Date(until).getTime() : Date.now();
-      const hours = Math.round((end - new Date(since).getTime()) / 3_600_000);
-      if (hours && hours !== 24) p.set("range", String(hours));
+      // Carry the exact on-screen window (see openRequest for why a raw hour
+      // count doesn't work).
+      p.set("since", since);
+      p.set("until", until ?? new Date().toISOString());
       router.push(`/projects/${projectSlug}/endpoints?${p.toString()}`);
     },
     [router, projectSlug, environment, appSlugs, since, until],
@@ -695,9 +802,15 @@ export default function EndpointDetailInspector({
             <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
             <span className="ep-emodal-path">{path}</span>
           </div>
-          <button type="button" className="ep-emodal-close" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
+          <div className="ep-emodal-headactions">
+            <button type="button" className="ep-rl-curl" onClick={copyLink} title="Copy a shareable link to this endpoint">
+              {copiedLink ? <Check size={13} /> : <Link2 size={13} />}
+              <span>{copiedLink ? "Copied" : "Copy link"}</span>
+            </button>
+            <button type="button" className="ep-emodal-close" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -709,7 +822,11 @@ export default function EndpointDetailInspector({
               role="tab"
               aria-selected={activeTab === t.key}
               className={`ep-emodal-tab${activeTab === t.key ? " is-active" : ""}`}
-              onClick={() => setActiveTab(t.key)}
+              onClick={() => {
+                // Opening the Errors tab directly (not via a card) shows all classes.
+                if (t.key === "errors") setErrorClass("all");
+                setActiveTab(t.key);
+              }}
             >
               {t.label}
             </button>
@@ -739,19 +856,21 @@ export default function EndpointDetailInspector({
             <>
               <CollapsibleSection title="Summary">
                 <div className="ep-statcards">
-                  <StatCard label="Total requests" icon={<Hash size={16} />} value={dl ? "—" : formatNumber(d!.total_requests)} />
+                  <StatCard label="Total requests" icon={<Hash size={16} />} value={dl ? "—" : formatNumber(d!.total_requests)} onClick={scrollToLog} hint="Jump to the request log" />
                   <StatCard label="Requests per minute" icon={<Gauge size={16} />} value={dl ? "—" : (d!.requests_per_minute || 0).toFixed(1)} />
-                  <StatCard label="Unique consumers" icon={<Fingerprint size={16} />} value={consumers === null ? "—" : formatNumber(consumers.length)} />
-                  <StatCard label="Client errors" icon={<CircleX size={16} />} value={dl ? "—" : formatNumber(d!.client_errors)} tone={!dl && d!.client_errors > 0 ? "warn" : undefined} />
-                  <StatCard label="Server errors" icon={<Bug size={16} />} value={dl ? "—" : formatNumber(d!.server_errors)} tone={!dl && d!.server_errors > 0 ? "bad" : undefined} />
+                  <StatCard label="Unique consumers" icon={<Fingerprint size={16} />} value={consumers === null ? "—" : formatNumber(consumers.length)} onClick={() => setActiveTab("consumers")} hint="View consumers for this endpoint" />
+                  <StatCard label="Client errors" icon={<CircleX size={16} />} value={dl ? "—" : formatNumber(d!.client_errors)} tone={!dl && d!.client_errors > 0 ? "warn" : undefined} onClick={() => goToErrors("4xx")} hint="Show client (4xx) errors" />
+                  <StatCard label="Server errors" icon={<Bug size={16} />} value={dl ? "—" : formatNumber(d!.server_errors)} tone={!dl && d!.server_errors > 0 ? "bad" : undefined} onClick={() => goToErrors("5xx")} hint="Show server (5xx) errors" />
                 </div>
               </CollapsibleSection>
               <CollapsibleSection title="Requests over time">
                 <RequestsOverTime timeseries={timeseries} />
               </CollapsibleSection>
-              <CollapsibleSection title="Most recent requests">
-                <RecentRequests rows={recentRequests} onSelect={openRequest} onConsumer={openConsumer} />
-              </CollapsibleSection>
+              <div ref={recentRef}>
+                <CollapsibleSection title="Most recent requests">
+                  <RecentRequests rows={recentRequests} onSelect={openRequest} onConsumer={openConsumer} />
+                </CollapsibleSection>
+              </div>
             </>
           )}
 
@@ -763,14 +882,42 @@ export default function EndpointDetailInspector({
 
           {activeTab === "errors" && (
             <>
+              {errorClass !== "all" && (
+                <div className="ep-err-filter">
+                  <span className={`ep-err-filter-pill ${errorClass === "4xx" ? "is-4xx" : "is-5xx"}`}>
+                    {errorClass === "4xx" ? "Client (4xx) errors only" : "Server (5xx) errors only"}
+                  </span>
+                  <button type="button" className="ep-err-filter-clear" onClick={() => setErrorClass("all")}>
+                    Show all errors
+                  </button>
+                </div>
+              )}
               <CollapsibleSection title="Errors by status code">
-                <ErrorsByStatus statusCodes={statusCodes} />
+                <ErrorsByStatus statusCodes={statusCodes} classFilter={errorClass} />
               </CollapsibleSection>
-              <CollapsibleSection title="Client & server errors over time">
-                <ErrorsOverTime timeseries={timeseries} />
+              <CollapsibleSection
+                title={
+                  errorClass === "4xx" ? "Client errors over time"
+                  : errorClass === "5xx" ? "Server errors over time"
+                  : "Client & server errors over time"
+                }
+              >
+                <ErrorsOverTime timeseries={timeseries} classFilter={errorClass} />
               </CollapsibleSection>
-              <CollapsibleSection title="Most recent client & server errors">
-                <RecentRequests rows={recentRequests} errorsOnly onSelect={openRequest} onConsumer={openConsumer} />
+              <CollapsibleSection
+                title={
+                  errorClass === "4xx" ? "Most recent client (4xx) errors"
+                  : errorClass === "5xx" ? "Most recent server (5xx) errors"
+                  : "Most recent client & server errors"
+                }
+              >
+                <RecentRequests
+                  rows={recentRequests}
+                  errorsOnly
+                  statusClass={errorClass === "all" ? undefined : errorClass}
+                  onSelect={openRequest}
+                  onConsumer={openConsumer}
+                />
               </CollapsibleSection>
             </>
           )}

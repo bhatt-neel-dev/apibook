@@ -1,0 +1,53 @@
+---
+title: "Flask"
+description: "Monitor a Flask service with APILens via the WSGI integration."
+---
+
+## Install
+
+```bash
+pip install "apilenss[flask]"
+```
+
+<Info>
+Requires Python ≥ 3.10 and Flask ≥ 3.0. Route templates come from Flask's own URL map — `<int:order_id>` becomes `{order_id}` automatically.
+</Info>
+
+## Instrument the app
+
+Flask uses an explicit client plus `instrument_flask` (unlike FastAPI, where the middleware owns the client):
+
+```python
+import os
+from flask import Flask
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.flask import instrument_flask
+
+app = Flask(__name__)
+client = ApiLensClient(ApiLensConfig(api_key=os.environ["APILENS_API_KEY"]))
+instrument_flask(app, client, app_id="storefront-api")
+```
+
+`instrument_flask` also accepts `environment`, `capture_spans`, `service_name`, and a `get_consumer` resolver.
+
+## Identify consumers
+
+In Flask, call `set_consumer` from a `before_request` hook — no request argument needed:
+
+```python
+from flask import g
+from apilens.flask import set_consumer
+
+@app.before_request
+def identify_consumer():
+    if g.get("user"):
+        set_consumer(identifier=g.user.id, name=g.user.email, group=g.user.plan)
+```
+
+## Tune capture
+
+Capture options (`enable_request_logging`, `log_request_body`, `log_response_body`, `capture_headers`, `max_payload_bytes`, …) are passed through the underlying WSGI middleware; client behavior (batching, retries, TLS) through `ApiLensConfig`. Both are documented in the [Python configuration reference](/sdk-reference/python-configuration).
+
+## Verify
+
+Run the app, send a few requests, and open the **Traffic** page. Not seeing data? See [Troubleshooting](/support/troubleshooting).
