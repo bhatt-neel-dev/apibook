@@ -9,6 +9,7 @@ from .client import ApiLensClient, ApiLensConfig
 from .client.middleware import (
     _apply_consumer,
     _consumer_ctx,
+    _maybe_record_error,
     _read_consumer,
     normalize_consumer,
     set_consumer,
@@ -137,6 +138,15 @@ class ApiLensDjangoMiddleware:
                 service_name=getattr(settings, "APILENS_SERVICE_NAME", "") or self.app_id,
             )
 
+    def process_exception(self, request, exception):
+        """Django calls this when a view raises — stash it so ``__call__``'s
+        finally can log the exception (with traceback) against the trace."""
+        try:
+            setattr(request, "_apilens_exc", exception)
+        except Exception:
+            pass
+        return None
+
     def __call__(self, request):
         started_at = time.perf_counter()
         response = None
@@ -204,7 +214,9 @@ class ApiLensDjangoMiddleware:
             _apply_consumer(ctx, consumer)
             _consumer_ctx.reset(consumer_token)
             end_request_trace(trace_token)
+            captured_exc = getattr(request, "_apilens_exc", None)
             if self.capture_spans:
+                is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
                     kind="server",
@@ -212,8 +224,17 @@ class ApiLensDjangoMiddleware:
                     span_id=span_id,
                     parent_span_id=parent_span_id,
                     duration_ms=(time.perf_counter() - started_at) * 1000.0,
-                    status="error" if status_code >= 500 else "ok",
+                    status="error" if is_error else "ok",
                     status_code=status_code,
+                )
+                _maybe_record_error(
+                    exc=captured_exc,
+                    status_code=status_code,
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    method=ctx.method,
+                    path=ctx.path,
+                    consumer=consumer,
                 )
             capture_response(
                 self.client,

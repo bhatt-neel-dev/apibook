@@ -1,33 +1,27 @@
 """Span capture — what happened *inside* a request.
 
-The middleware records a root ``server`` span per request automatically.
-Application code adds child spans with the :func:`span` context manager::
+Spans are captured entirely automatically; there is no manual span API. The
+middleware records a root ``server`` span per request, and outbound HTTP calls
+made with ``requests`` or ``httpx`` become child ``http`` spans (with
+``traceparent`` propagation downstream) when the middleware is installed with
+``capture_spans=True``.
 
-    from apilens import span
-
-    with span("charge card", kind="db"):
-        ...
-
-Outbound HTTP calls made with ``requests`` or ``httpx`` are instrumented
-automatically (child ``http`` spans + ``traceparent`` propagation) when the
-middleware is installed with ``capture_spans=True``.
-
-Spans are silently dropped when there is no active trace (e.g. background
-jobs) or no middleware has been installed — ``span()`` is always safe to call.
+When a request fails — an unhandled exception or a 5xx response — the
+middleware also emits one ERROR log correlated to the trace (see
+:func:`record_error_log`), so the failing request carries its message. This is
+the only thing written to ``/v1/logs``; it is not a general logging API.
 """
 
 from __future__ import annotations
 
-import contextvars
 import os
 import threading
 import time
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from .models import SpanRecord
-from .trace import _trace_ctx, current_span_id, current_trace_id, generate_span_id
+from .models import LogRecord, SpanRecord
+from .trace import current_span_id, current_trace_id, generate_span_id
 
 if TYPE_CHECKING:
     from .client import ApiLensClient
@@ -54,7 +48,7 @@ def env_spans_enabled() -> bool:
 
 
 class _SpanRecorder:
-    """Where span() sends finished spans; configured by the middleware."""
+    """Where captured spans and error logs are sent; set by the middleware."""
 
     def __init__(self, client: "ApiLensClient", *, app_id: str, environment: str, service_name: str) -> None:
         self.client = client
@@ -140,41 +134,48 @@ def record_span(
     )
 
 
-@contextmanager
-def span(name: str, *, kind: str = "internal", attributes: dict[str, Any] | None = None):
-    """Record a child span of the current request.
+def record_error_log(
+    *,
+    trace_id: str,
+    span_id: str,
+    level: str,
+    message: str,
+    method: str = "",
+    path: str = "",
+    status_code: int = 0,
+    consumer: dict[str, str] | None = None,
+    payload: str = "",
+    logger_name: str = "apilens",
+) -> None:
+    """Queue one ERROR log correlated to a trace (no-op when not configured).
 
-    Safe anywhere: outside a request (or without middleware) it simply runs
-    the body without recording. An exception marks the span as ``error`` and
-    is re-raised.
+    Called by the middlewares when a request raises or returns 5xx, so the
+    failing request's trace carries its message. Not a public logging API.
     """
-    trace_id = current_trace_id()
-    if not trace_id or _recorder is None:
-        yield None
+    recorder = _recorder
+    if recorder is None or not trace_id:
         return
-
-    parent = current_span_id()
-    span_id = generate_span_id()
-    token = _trace_ctx.set((trace_id, span_id))
-    started = time.perf_counter()
-    status = "ok"
-    try:
-        yield span_id
-    except BaseException:
-        status = "error"
-        raise
-    finally:
-        _trace_ctx.reset(token)
-        record_span(
-            name=name,
-            kind=kind,
+    consumer = consumer or {}
+    recorder.client.capture_log(
+        LogRecord(
+            timestamp=datetime.now(tz=timezone.utc),
+            environment=recorder.environment,
+            level=(level or "ERROR").upper(),
+            message=(message or "")[:4000],
+            logger_name=logger_name or "apilens",
+            endpoint_method=(method or "").upper(),
+            endpoint_path=path or "",
+            status_code=int(status_code or 0),
+            consumer_id=str(consumer.get("consumer_id") or ""),
+            consumer_name=str(consumer.get("consumer_name") or ""),
+            consumer_group=str(consumer.get("consumer_group") or ""),
             trace_id=trace_id,
             span_id=span_id,
-            parent_span_id=parent,
-            duration_ms=(time.perf_counter() - started) * 1000.0,
-            status=status,
-            attributes=attributes,
+            project_slug=recorder.client.config.project_slug,
+            app_id=recorder.app_id,
+            payload=(payload or "")[:8000],
         )
+    )
 
 
 # ── Outbound HTTP auto-instrumentation ──────────────────────────────────────

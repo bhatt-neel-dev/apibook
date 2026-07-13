@@ -446,28 +446,50 @@ function Waterfall({ spans }: { spans: SpanItem[] }) {
   const total = Math.max(traceEnd - traceStart, 1);
 
   return (
-    <div className="ep-rel-list">
-      {spans.map((s, i) => {
-        const left = Math.min(((starts[i] - traceStart) / total) * 100, 99);
-        const width = Math.max(Math.min((Math.max(s.duration_ms, 0) / total) * 100, 100 - left), 0.75);
-        const color = spanColor(s.kind, s.status);
-        return (
-          <div key={`${s.span_id}-${i}`} className="ep-trace-row">
-            <span
-              className="ep-trace-name"
-              style={{ paddingLeft: (depths.get(s.span_id) || 0) * 14 }}
-              title={`${s.name}${s.service_name ? ` · ${s.service_name}` : ""}`}
-            >
-              <span className="ep-trace-kind" style={{ color }}>{s.kind || "internal"}</span>
-              {s.name}
-            </span>
-            <span className="ep-trace-track">
-              <span className="ep-trace-bar" style={{ left: `${left}%`, width: `${width}%`, background: color }} />
-            </span>
-            <span className="ep-rel-dur">{formatMs(s.duration_ms)}</span>
-          </div>
-        );
-      })}
+    <div className="ep-trace">
+      {/* One-line explainer + a time scale, so the bars read as a timeline
+          (start = when a step began, length = how long it took) rather than a
+          featureless progress bar. */}
+      <p className="ep-trace-hint">
+        Each row is one step of this request. A bar&apos;s <strong>position</strong> shows when the step
+        started and its <strong>length</strong> shows how long it took, across the request&apos;s total of {formatMs(total)}.
+      </p>
+      <div className="ep-trace-axis" aria-hidden>
+        <span className="ep-trace-axis-name">Span</span>
+        <span className="ep-trace-axis-scale">
+          <span>0</span>
+          <span>{formatMs(total / 2)}</span>
+          <span>{formatMs(total)}</span>
+        </span>
+        <span className="ep-trace-axis-dur">Duration</span>
+      </div>
+      <div className="ep-rel-list">
+        {spans.map((s, i) => {
+          const startOffset = starts[i] - traceStart;
+          const left = Math.min((startOffset / total) * 100, 99);
+          const width = Math.max(Math.min((Math.max(s.duration_ms, 0) / total) * 100, 100 - left), 0.75);
+          const color = spanColor(s.kind, s.status);
+          return (
+            <div key={`${s.span_id}-${i}`} className="ep-trace-row">
+              <span
+                className="ep-trace-name"
+                style={{ paddingLeft: (depths.get(s.span_id) || 0) * 14 }}
+                title={`${s.name}${s.service_name ? ` · ${s.service_name}` : ""}`}
+              >
+                <span className="ep-trace-kind" style={{ color }}>{s.kind || "internal"}</span>
+                {s.name}
+              </span>
+              <span
+                className="ep-trace-track"
+                title={`Started +${formatMs(startOffset)} into the request · ran for ${formatMs(s.duration_ms)}`}
+              >
+                <span className="ep-trace-bar" style={{ left: `${left}%`, width: `${width}%`, background: color }} />
+              </span>
+              <span className="ep-rel-dur">{formatMs(s.duration_ms)}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -548,8 +570,8 @@ function TraceTab({
           <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
         ) : spans.length === 0 ? (
           <div className="endpoint-detail-empty">
-            No spans recorded for this trace yet. The middleware records the request span automatically;
-            add <code>with apilens.span(&quot;name&quot;)</code> around interesting work to break the time down further.
+            No spans recorded for this trace yet. Spans are captured automatically — upgrade the APILens SDK
+            if this request is missing them.
           </div>
         ) : (
           <Waterfall spans={spans} />
@@ -557,14 +579,15 @@ function TraceTab({
       </div>
       <div className="ep-rl-headblock">
         <h4 className="ep-rl-subhead">
-          Logs in this trace
+          Trace messages
           {logs?.length ? <span className="ep-rl-count">{logs.length}</span> : null}
         </h4>
         {logs === null ? (
           <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
         ) : logs.length === 0 ? (
           <div className="endpoint-detail-empty">
-            No logs correlated with this request. Ship application logs with this trace id to see them here.
+            No errors on this request. APILens records a message here automatically when a request raises an
+            exception or returns a 5xx — a clean request has nothing to show.
           </div>
         ) : (
           <div className="ep-rel-list">
