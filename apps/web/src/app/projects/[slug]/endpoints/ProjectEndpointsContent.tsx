@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  ChevronLeft,
   ChevronRight,
   Clock,
   Fingerprint,
@@ -16,6 +15,7 @@ import {
   formatMs,
   statusTone,
 } from "./detail/sections";
+import Pagination from "@/components/aperture/Pagination";
 import RequestLogDetailModal, { type RequestItem } from "./RequestLogDetailModal";
 import {
   type RangeValue,
@@ -235,21 +235,17 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
   return (
     <div className="ep-rl">
-      {/* ── Toolbar ── */}
+      {/* ── Toolbar: filter search + time on one line ── */}
       <div className="ep-rl-toolbar">
-        <h1 className="ep-rl-title">Request logs</h1>
-        <div className="ep-rl-spacer" />
+        <div className="ep-rl-filtergrow">
+          <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} />
+        </div>
 
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
         <button type="button" className="tf-refresh" onClick={() => setRefreshKey((k) => k + 1)} title="Refresh" aria-label="Refresh">
           <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
         </button>
-      </div>
-
-      {/* Full-width filter row (rich query bar). */}
-      <div className="ep-rl-filterrow">
-        <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} />
       </div>
 
       {/* ── Request list ── */}
@@ -323,15 +319,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
             <span className="ep-rl-pager-info">
               {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount.toLocaleString()}
             </span>
-            <div className="ep-rl-pager-btns">
-              <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                <ChevronLeft size={15} />
-              </button>
-              <span className="ep-rl-pager-page">Page {page} / {totalPages}</span>
-              <button type="button" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-                <ChevronRight size={15} />
-              </button>
-            </div>
+            <Pagination page={page} totalPages={totalPages} onChange={setPage} />
           </div>
         )}
       </section>

@@ -18,6 +18,9 @@ class RequestRecord(BaseModel):
     environment: str
     method: str
     path: str
+    # Exact request path (/product/123); `path` is the grouping template
+    # (/product/{id}). Optional for backward compatibility with older SDKs.
+    raw_path: str = ""
     status_code: int
     response_time_ms: float
     request_size: int = 0

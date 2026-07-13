@@ -9,6 +9,7 @@ import {
   ScrollText,
   TrendingUp,
   Activity,
+  AlertOctagon,
   Users,
   Settings,
   Bell,
@@ -82,6 +83,7 @@ export default function Sidebar() {
     ? [
       { name: "Apps", href: `/projects/${projectSlug}/apps`, icon: ScrollText },
       { name: "Traffic", href: `/projects/${projectSlug}/traffic`, icon: Activity },
+      { name: "Errors", href: `/projects/${projectSlug}/errors`, icon: AlertOctagon },
       { name: "Request logs", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
       { name: "Consumers", href: `/projects/${projectSlug}/consumers`, icon: Users },
       { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },

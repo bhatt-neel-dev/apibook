@@ -17,10 +17,13 @@
 # Stop the containers with `pnpm db:down` when you're done for the day.
 # Only api/ingest/web are torn down on quit.
 #
-# SDK sidecar services (fastapi/:8011, flask/:8012, django-ninja/:8013) are
-# listed but NOT auto-started. Select one and press `s` to start it when you
-# need to test SDK integration. Requires: cd sidecar-testing/<name> && pip install -r requirements.txt
-# and a populated .env (APILENS_API_KEY + APILENS_APP_ID).
+# The "Neel's Store" mock e-commerce microservices (catalog/user/cart/order/
+# payment/inventory on :9101–:9106) plus a traffic generator are listed but NOT
+# auto-started. Select one and press `s` to start it when you want to exercise
+# the dashboard with lifelike traffic, errors, consumers, and cross-service
+# traces — they all report to the "Neel's Store" APILens project. Switch the SDK
+# source (published PyPI vs the local in-repo SDK) with mock-ecommerce/sdk.sh;
+# see mock-ecommerce/README.md.
 procs:
   postgres:
     shell: "docker compose -f infra/docker/docker-compose.local.yml up -d postgres && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix postgres"
@@ -41,13 +44,29 @@ procs:
   web:
     # Next.js dashboard on :3002.
     shell: "pnpm --filter frontend dev"
-  # ── SDK integration sidecars (off by default — press `s` to start) ──────────
-  sidecar-fastapi:
+  # ── Neel's Store mock e-commerce microservices (off by default — press `s`) ──
+  # One APILens app per service; all report to the "Neel's Store" project and
+  # use the SDK currently installed in mock-ecommerce/.venv (published by
+  # default — run `mock-ecommerce/sdk.sh local` to test the in-repo SDK).
+  store-catalog:
     autostart: false
-    shell: "cd sidecar-testing/fastapi && ([ -d .venv ] || python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt) && . .venv/bin/activate && PYTHONUNBUFFERED=1 uvicorn app.main:app --host 0.0.0.0 --port 8011 --reload"
-  sidecar-flask:
+    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.catalog:app --host 0.0.0.0 --port 9101 --reload"
+  store-user:
     autostart: false
-    shell: "cd sidecar-testing/flask && ([ -d .venv ] || python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt) && . .venv/bin/activate && PYTHONUNBUFFERED=1 python app/main.py"
-  sidecar-django:
+    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.users:app --host 0.0.0.0 --port 9102 --reload"
+  store-cart:
     autostart: false
-    shell: "cd sidecar-testing/django-ninja && ([ -d .venv ] || python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt) && . .venv/bin/activate && PYTHONUNBUFFERED=1 python manage.py runserver 0.0.0.0:8013"
+    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.cart:app --host 0.0.0.0 --port 9103 --reload"
+  store-order:
+    autostart: false
+    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.orders:app --host 0.0.0.0 --port 9104 --reload"
+  store-payment:
+    autostart: false
+    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.payments:app --host 0.0.0.0 --port 9105 --reload"
+  store-inventory:
+    autostart: false
+    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.inventory:app --host 0.0.0.0 --port 9106 --reload"
+  # Fire traffic at the running store (restart this tab with `r` to send more).
+  store-traffic:
+    autostart: false
+    shell: "cd mock-ecommerce && .venv/bin/python generate_traffic.py 100"

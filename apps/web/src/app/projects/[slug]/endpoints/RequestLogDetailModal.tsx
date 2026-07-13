@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Fingerprint, Globe, Link2, Server, Terminal, Timer, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, ChevronRight, Copy, Fingerprint, Globe, Link2, Server, Terminal, Timer, X } from "lucide-react";
 import {
   formatBytes,
   formatDateTime,
@@ -20,6 +20,9 @@ export interface RequestItem {
   environment: string;
   method: string;
   path: string;
+  // Exact request URL (/product/123). `path` is the endpoint template
+  // (/product/{id}). Older rows have no raw_path — fall back to `path`.
+  raw_path?: string;
   status_code: number;
   response_time_ms: number;
   request_size: number;
@@ -214,6 +217,8 @@ function Body({ title, raw }: { title: string; raw: string | undefined }) {
 /* ── Related tab ─────────────────────────────────────────────────────── */
 
 const rowKey = (r: RequestItem) => `${r.timestamp}|${r.method}|${r.path}|${r.status_code}`;
+// Exact URL for display/curl; `path` (template) still drives grouping/filters.
+const reqUrl = (r: RequestItem) => r.raw_path || r.path;
 
 function RelatedRow({
   r,
@@ -237,7 +242,7 @@ function RelatedRow({
       <span className="ep-rel-time">{timeShort(r.timestamp)}</span>
       <span className={`endpoint-status-pill ${statusTone(r.status_code)}`}>{r.status_code}</span>
       <span className="ep-rel-method" style={{ color: methodColor(r.method) }}>{r.method}</span>
-      <span className="ep-rel-path">{r.path}</span>
+      <span className="ep-rel-path">{reqUrl(r)}</span>
       {current && <span className="ep-rel-here">this request</span>}
       <span className="ep-rel-dur">{formatMs(r.response_time_ms)}</span>
     </button>
@@ -494,6 +499,57 @@ function Waterfall({ spans }: { spans: SpanItem[] }) {
   );
 }
 
+// One log line. When APILens captured a payload (the full exception traceback
+// for `apilens.exception` errors), the row expands to show it verbatim.
+function LogRow({ log }: { log: LogItem }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hasPayload = !!(log.payload && log.payload.trim());
+  const level = (log.level || "INFO").toUpperCase();
+  const isError = level === "ERROR" || level === "CRITICAL";
+  const copyTrace = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(log.payload || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+  return (
+    <div className={`ep-log-item${open ? " is-open" : ""}${isError ? " is-error" : ""}`}>
+      <button
+        type="button"
+        className={`ep-log-row${hasPayload ? " is-expandable" : ""}`}
+        onClick={() => hasPayload && setOpen((o) => !o)}
+        aria-expanded={hasPayload ? open : undefined}
+      >
+        {hasPayload ? (
+          <ChevronRight size={13} className={`ep-log-caret${open ? " is-open" : ""}`} />
+        ) : (
+          <span className="ep-log-caret-spacer" aria-hidden />
+        )}
+        <span className="ep-rel-time">{timeShort(log.timestamp)}</span>
+        <span className={`endpoint-status-pill ${levelTone(log.level)}`}>{level}</span>
+        {log.logger_name ? <span className="ep-log-logger" title={log.logger_name}>{log.logger_name}</span> : null}
+        <span className="ep-log-msg" title={log.message}>{log.message}</span>
+        {hasPayload ? <span className="ep-log-toggle">{open ? "Hide" : "Stack trace"}</span> : null}
+      </button>
+      {open && hasPayload ? (
+        <div className="ep-log-trace-wrap">
+          <div className="ep-log-trace-head">
+            <span>Traceback</span>
+            <button type="button" className="ep-rl-copy" onClick={copyTrace}>
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <pre className="request-payload-pre ep-log-trace">{log.payload}</pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TraceTab({
   projectSlug,
   traceId,
@@ -592,12 +648,7 @@ function TraceTab({
         ) : (
           <div className="ep-rel-list">
             {logs.map((l, i) => (
-              <div key={`${l.timestamp}-${i}`} className="ep-log-row">
-                <span className="ep-rel-time">{timeShort(l.timestamp)}</span>
-                <span className={`endpoint-status-pill ${levelTone(l.level)}`}>{(l.level || "INFO").toUpperCase()}</span>
-                {l.logger_name ? <span className="ep-log-logger" title={l.logger_name}>{l.logger_name}</span> : null}
-                <span className="ep-log-msg" title={l.message}>{l.message}</span>
-              </div>
+              <LogRow key={`${l.timestamp}-${i}`} log={l} />
             ))}
           </div>
         )}
@@ -705,7 +756,7 @@ export default function RequestLogDetailModal({
   const curl = useMemo(() => {
     const base = (pr?.base_url || "").replace(/\/$/, "") || "YOUR_BASE_URL";
     const body = formatPayload(pr?.request_payload);
-    const lines = [`curl -X ${row.method} "${base}${row.path}"`];
+    const lines = [`curl -X ${row.method} "${base}${reqUrl(row)}"`];
     if (body) {
       lines.push(`  -H "Content-Type: application/json"`);
       lines.push(`  -d '${body.replace(/'/g, "'\\''")}'`);
@@ -729,7 +780,7 @@ export default function RequestLogDetailModal({
             <span className="ep-emodal-crumb">Request details</span>
             <span className={`endpoint-status-pill ${statusTone(row.status_code)}`}>{row.status_code}</span>
             <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-            <span className="ep-emodal-path">{row.path}</span>
+            <span className="ep-emodal-path">{reqUrl(row)}</span>
           </div>
           <div className="ep-emodal-headactions">
             <button type="button" className="ep-rl-curl" onClick={copyCurl} title="Copy as cURL">

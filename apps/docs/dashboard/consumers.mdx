@@ -1,0 +1,42 @@
+---
+title: "Consumers"
+description: "See who is calling your API — per-consumer volume, error rates, latency, and last-seen."
+---
+
+The Consumers page breaks your traffic down by *who* is calling: customers, tenants, internal services, partner integrations — whatever identity your code reports. It answers questions aggregates can't: which customer is hammering the API, whose integration broke last night, who is still on the deprecated endpoint.
+
+<Frame caption="Consumers with per-group tags, request volume, error split, and last-seen">
+  <img src="/images/consumers.png" alt="Consumers page" />
+</Frame>
+
+For each consumer you get total requests, client 4xx and server 5xx rates (split, like everywhere else in APILens), average response time, and when they were last seen. Group tags (e.g. `premium`, `standard`, `admin`) come from the optional `group` you set in the SDK and make plan- or tier-level comparisons easy.
+
+Clicking a consumer drills into their requests, and every request detail view links back the other way — from a single failing request to that consumer's whole history.
+
+## Reporting consumers from your API
+
+APILens **never infers identity** — it won't decode your JWTs or read `Authorization` headers. You state the consumer explicitly, typically right after your auth layer resolves the user:
+
+```python
+from apilens.fastapi import set_consumer
+
+@app.middleware("http")  # or a FastAPI dependency
+async def identify(request, call_next):
+    user = request.state.user  # however your auth works
+    if user:
+        set_consumer(
+            request,
+            identifier=user.email,   # stable ID — filtering keys off this
+            name=user.full_name,     # display label
+            group=user.plan,         # optional grouping
+        )
+    return await call_next(request)
+```
+
+`identifier` should be **stable** (user ID, email, API-key name) — it's what dedupes and filters the consumer across requests. `name` is just the label; you can change it any time without splitting history.
+
+Framework-specific patterns (Flask `before_request`, Django settings hook, centralized `get_consumer` resolvers) are covered in the [consumer identification reference](/sdk-reference/consumers).
+
+<Tip>
+Not sure what to use as the identifier? Prefer an ID that survives renames and email changes. If consumers are API keys rather than humans, use the key's name or prefix — never the key itself.
+</Tip>

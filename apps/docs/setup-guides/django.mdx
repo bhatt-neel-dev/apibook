@@ -1,0 +1,78 @@
+---
+title: "Django"
+description: "Monitor a Django service (Django REST Framework and django-ninja included) with one middleware and two settings."
+---
+
+## Install
+
+```bash
+pip install "apilenss[django]"
+```
+
+<Info>
+Requires Python ≥ 3.10 and Django ≥ 4.2. Works with plain Django views, Django REST Framework, and django-ninja — route templates are resolved from `resolver_match`, including `path()` converters and `re_path()` named groups.
+</Info>
+
+## Configure
+
+Django is configured through settings rather than a client object — the middleware builds a module-level client from them:
+
+```python
+# settings.py
+import os
+
+MIDDLEWARE = [
+    # ... your other middleware ...
+    "apilens.django.ApiLensDjangoMiddleware",   # keep last
+]
+
+APILENS_API_KEY = os.environ["APILENS_API_KEY"]   # required
+APILENS_APP_ID = "billing-api"                    # required
+```
+
+Both settings are required — the middleware raises a `RuntimeError` at startup if either is missing, so a misconfigured deploy fails loudly instead of silently reporting nothing.
+
+### Optional settings
+
+```python
+APILENS_ENVIRONMENT = "staging"          # default "production"
+APILENS_BASE_URL = "https://ingest.apilens.ai/v1"
+APILENS_BATCH_SIZE = 200
+APILENS_FLUSH_INTERVAL = 3.0
+APILENS_MAX_PAYLOAD_BYTES = 65536
+APILENS_CAPTURE_HEADERS = True
+APILENS_CAPTURE_SPANS = True
+APILENS_PARAMETRIZE_PATHS = True
+APILENS_SERVICE_NAME = ""
+APILENS_PROJECT_SLUG = ""                # optional; key already implies the project
+```
+
+## Identify consumers
+
+Either call `set_consumer` wherever your auth runs, or point the `APILENS_GET_CONSUMER` setting at a resolver (callable or dotted path):
+
+<CodeGroup>
+```python In a view / middleware
+from apilens.django import set_consumer
+
+def my_view(request):
+    if request.user.is_authenticated:
+        set_consumer(request, identifier=request.user.email, name=request.user.get_full_name())
+    ...
+```
+
+```python Resolver setting
+# settings.py
+APILENS_GET_CONSUMER = "myproject.telemetry.resolve_consumer"
+
+# myproject/telemetry.py
+def resolve_consumer(request):
+    if request.user.is_authenticated:
+        return {"id": request.user.pk, "name": request.user.email}
+    return None
+```
+</CodeGroup>
+
+## Verify
+
+Run the server, send a few requests, and check the **Traffic** page. Full option semantics live in the [Python configuration reference](/sdk-reference/python-configuration); capture defaults and redaction in [Data privacy](/getting-started/data-privacy).

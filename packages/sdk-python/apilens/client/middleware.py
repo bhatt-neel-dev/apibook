@@ -17,6 +17,7 @@ from ._capture import (
     _to_int,
     capture_response,
 )
+from ._routes import resolve_endpoint_path
 from ._sanitize import decode_utf8_safe, serialize_headers
 from .client import ApiLensClient
 from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
@@ -286,6 +287,8 @@ class ApiLensASGIMiddleware:
         service_name: str = "",
         max_payload_bytes: int = 65536,
         get_consumer: Callable[..., Any] | None = None,
+        route_resolver: Callable[[dict], str | None] | None = None,
+        parametrize_paths: bool = True,
     ) -> None:
         self.app = app
         self.client = client
@@ -298,6 +301,11 @@ class ApiLensASGIMiddleware:
         self.capture_payloads = capture_payloads and enable_request_logging
         self.capture_headers = capture_headers and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
+        # Framework hook that maps a matched request scope to its route template
+        # (``/product/{id}``). Runs after the app handled the request, when
+        # routing has resolved. Heuristic fallback applies when it returns None.
+        self.route_resolver = route_resolver
+        self.parametrize_paths = parametrize_paths
         # Optional callback to centralize consumer extraction, e.g.
         #   get_consumer=lambda scope, headers: headers.get("x-user")
         # Return a str, dict, object or None. Never invoked automatically
@@ -329,6 +337,7 @@ class ApiLensASGIMiddleware:
         ctx = CaptureContext(
             method=(scope.get("method") or "GET").upper(),
             path=path,
+            raw_path=path,
             project_slug=self.project_slug or self.client.config.project_slug,
             app_id=self.app_id,
             request_size=_to_int(headers.get("content-length"), 0),
@@ -391,6 +400,16 @@ class ApiLensASGIMiddleware:
             captured_exc = exc
             raise
         finally:
+            # Routing has resolved now, so ask the framework for the matched
+            # route template and group under it. raw_path keeps the real URL.
+            if self.route_resolver is not None:
+                try:
+                    template = self.route_resolver(scope)
+                except Exception:
+                    template = None
+            else:
+                template = None
+            ctx.path = resolve_endpoint_path(template, ctx.raw_path, self.parametrize_paths)
             consumer = dict(_read_consumer())
             scope_state = scope.get("state")
             if isinstance(scope_state, dict):
@@ -463,6 +482,8 @@ class ApiLensWSGIMiddleware:
         service_name: str = "",
         max_payload_bytes: int = 65536,
         get_consumer: Callable[..., Any] | None = None,
+        route_resolver: Callable[[dict], str | None] | None = None,
+        parametrize_paths: bool = True,
     ) -> None:
         self.app = app
         self.client = client
@@ -475,6 +496,10 @@ class ApiLensWSGIMiddleware:
         self.capture_payloads = capture_payloads and enable_request_logging
         self.capture_headers = capture_headers and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
+        # Framework hook that maps a WSGI environ to its route template. Runs
+        # after the app handled the request. Heuristic fallback when None.
+        self.route_resolver = route_resolver
+        self.parametrize_paths = parametrize_paths
         # Optional callback to centralize consumer extraction, e.g.
         #   get_consumer=lambda environ: environ.get("HTTP_X_USER")
         # Return a str, dict, object or None. Prefer calling track_consumer()
@@ -496,10 +521,9 @@ class ApiLensWSGIMiddleware:
         consumer_token = _consumer_ctx.set(None)
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(environ.get("HTTP_TRACEPARENT"))
 
-        path = _normalize_path(environ.get("PATH_INFO") or "/")
+        clean_path = _normalize_path(environ.get("PATH_INFO") or "/")
         query = environ.get("QUERY_STRING")
-        if query:
-            path = f"{path}?{query}"
+        path = f"{clean_path}?{query}" if query else clean_path
 
         xff = (environ.get("HTTP_X_FORWARDED_FOR") or "").strip()
         if xff:
@@ -529,6 +553,7 @@ class ApiLensWSGIMiddleware:
         ctx = CaptureContext(
             method=(environ.get("REQUEST_METHOD") or "GET").upper(),
             path=path,
+            raw_path=path,
             project_slug=self.project_slug or self.client.config.project_slug,
             app_id=self.app_id,
             request_size=_to_int(environ.get("CONTENT_LENGTH"), 0),
@@ -576,6 +601,16 @@ class ApiLensWSGIMiddleware:
             close = getattr(result, "close", None)
             if callable(close):
                 close()
+            # Group under the matched route template; raw_path keeps the real
+            # URL (query string included) for the request log.
+            if self.route_resolver is not None:
+                try:
+                    template = self.route_resolver(environ)
+                except Exception:
+                    template = None
+            else:
+                template = None
+            ctx.path = resolve_endpoint_path(template, clean_path, self.parametrize_paths)
             consumer = dict(_read_consumer())
             if self.get_consumer is not None and not consumer.get("consumer_id"):
                 try:

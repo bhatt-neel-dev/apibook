@@ -1,0 +1,49 @@
+---
+title: "Traffic"
+description: "A live, project-wide view of request volume, errors, and data transfer across all your apps."
+---
+
+The Traffic page is the first place to look — both day to day and mid-incident. It aggregates every app in the project into one chart and one endpoints table, and keeps itself current with live polling.
+
+<Frame caption="Traffic across a six-service project, last 24 hours">
+  <img src="/images/traffic.png" alt="Traffic page" />
+</Frame>
+
+## Metric tabs
+
+Six metric tiles sit above the chart; clicking one switches what the chart plots:
+
+| Tab | Chart | What it tells you |
+|---|---|---|
+| **Total requests** | Stacked bars — success (green), 4xx (amber), 5xx (red) | Volume and error mix at a glance |
+| **Requests per minute** | Area | Load shape and spikes |
+| **Data transferred** | Area | Bandwidth by request + response bytes |
+| **Client 4xx** | Area (%) | Callers misusing your API |
+| **Server 5xx** | Area (%) | Your bugs |
+| **Total errors** | Stacked 4xx + 5xx (%) | Combined, when you want it |
+
+The client/server split is deliberate — see [Error analysis](/dashboard/errors) for why APILens never gives you a single blended error rate.
+
+## Live mode
+
+The numbers use an odometer animation and the **LIVE** pill in the header shows how fresh the data is. While the tab is visible, the page re-queries every ~5 seconds with a rolling window; it pauses automatically when the tab is hidden. Toggle live updates off or trigger a manual refresh from the header.
+
+## Filtering
+
+- **App selector** — narrow to one or more apps in the project.
+- **Time range** — presets from the dropdown (e.g. last 24 hours).
+- **Filter bar** — compose filters like `status:>=500 path:~/v1/orders`, plus environment, HTTP method, latency, and consumer.
+
+Everything is mirrored into the URL, so a filtered view is a shareable link — paste it in your incident channel and everyone sees the same slice.
+
+## Endpoints table
+
+Below the chart, every endpoint discovered from traffic is listed with request count, client 4xx %, server 5xx %, total error %, and data transferred. It supports server-side search, sorting on any metric column, and pagination.
+
+Click a row to open the endpoint inspector — a slide-over with that endpoint's summary, request-over-time chart, and most recent requests:
+
+<Frame caption="Endpoint detail inspector, opened from the endpoints table">
+  <img src="/images/endpoint-detail.png" alt="Endpoint detail inspector" />
+</Frame>
+
+From here you can jump into any individual request — see [Request logs](/dashboard/request-logs).

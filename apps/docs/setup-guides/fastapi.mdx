@@ -1,0 +1,85 @@
+---
+title: "FastAPI"
+description: "Monitor a FastAPI service with APILens in two lines."
+---
+
+## Install
+
+```bash
+pip install "apilenss[fastapi]"
+```
+
+<Info>
+The PyPI distribution is `apilenss` (double *s*); the import package is `apilens`. Requires Python ≥ 3.10 and FastAPI ≥ 0.110.
+</Info>
+
+## Add the middleware
+
+```python
+import os
+from fastapi import FastAPI
+from apilens.fastapi import ApiLensMiddleware
+
+app = FastAPI()
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key=os.environ["APILENS_API_KEY"],
+    app_id="orders-api",          # the app's slug from your APILens project
+    env="production",             # default; use "staging", "development", ...
+)
+```
+
+That's it for metrics, request logs, and traces. `api_key` is your **project-level** key (Settings → API keys); `app_id` attributes this service's traffic to the right app in the project.
+
+<Tip>
+When stacking multiple middlewares, add `ApiLensMiddleware` **last** so it wraps the full request lifecycle and its timings include your other middleware.
+</Tip>
+
+## Identify consumers
+
+Report who is calling once your auth resolves the user — via a dependency or inside handlers:
+
+<CodeGroup>
+```python Dependency
+from fastapi import Depends, Request
+from apilens.fastapi import set_consumer
+
+async def identify_consumer(request: Request, user=Depends(get_current_user)):
+    set_consumer(request, identifier=user.id, name=user.name, group=user.plan)
+
+app = FastAPI(dependencies=[Depends(identify_consumer)])
+```
+
+```python In the endpoint
+from apilens.fastapi import set_consumer
+
+@app.get("/orders")
+async def list_orders(request: Request):
+    set_consumer(request, identifier="acme-corp", group="premium")
+    ...
+```
+</CodeGroup>
+
+Alternatively pass a centralized resolver: `get_consumer=lambda scope, headers: ...` on the middleware. An explicit `set_consumer` always wins over the resolver.
+
+## Tune capture
+
+Headers and bodies are captured by default (sensitive headers redacted in-process). Common adjustments:
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key=os.environ["APILENS_API_KEY"],
+    app_id="orders-api",
+    enable_request_logging=False,   # metrics + traces only
+    log_response_body=False,        # or drop just one side
+    max_payload_bytes=4096,         # tighter body cap (default 65536)
+    capture_spans=False,            # disable tracing for this app
+)
+```
+
+The full option list — including `base_url`, TLS options, and env-var kill switches — is in the [Python configuration reference](/sdk-reference/python-configuration).
+
+## Verify
+
+Run the service, hit a few endpoints, and open your project's **Traffic** page — data appears within a few seconds. If nothing shows up, walk through [Troubleshooting](/support/troubleshooting).

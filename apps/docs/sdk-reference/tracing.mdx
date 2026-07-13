@@ -1,0 +1,66 @@
+---
+title: "Tracing reference"
+description: "The exact behavior of automatic tracing in the Python SDK: spans, propagation, error capture, and kill switches."
+---
+
+APILens tracing (SDK ≥ 0.3.0) is **automatic-only** — there is no manual span API. That's a deliberate trade: you get consistent traces on every request with zero instrumentation code, at the cost of custom spans (which are on the [roadmap](/roadmap) via richer OpenTelemetry interop).
+
+## What gets traced
+
+- **Root span per request** — kind `server`, named after the method and route template, timed across the full middleware wrap.
+- **Outbound HTTP** — the SDK instruments `requests` and `httpx` (sync *and* async): each outbound call becomes a child span of kind `http` with the target URL (query strings and userinfo stripped from names).
+- **Nothing else, by design** — spans carry names, timing, kind, and status. Never payloads.
+
+Requirements: `capture_spans=True` (default), a non-empty **`app_id`**, and the `APILENS_CAPTURE_SPANS` env var not set to a falsey value. All three must hold.
+
+## Cross-service propagation
+
+The SDK speaks W3C Trace Context:
+
+- **Inbound**: a `traceparent` header on the request continues that trace instead of starting a new one.
+- **Outbound**: instrumented `requests`/`httpx` calls inject `traceparent: 00-{trace_id}-{span_id}-01` downstream.
+
+Run the middleware in every service and a request crossing `cart → payment → orders` renders as one waterfall in the dashboard. Helpers for your own logs or headers:
+
+```python
+from apilens import current_trace_id, current_span_id, current_traceparent
+```
+
+## Automatic error capture
+
+When a request **raises an unhandled exception** or **returns 5xx**, the SDK emits exactly one `ERROR` log record correlated to the trace:
+
+| Trigger | Logger name | Payload |
+|---|---|---|
+| Unhandled exception | `apilens.exception` | Full traceback (payload capped at 8,000 chars; message at 4,000) |
+| 5xx without an exception | `apilens.http` | `HTTP <code> on <method> <path>` |
+
+The span's status is marked `error` in both cases. These records appear as **Trace messages** in the request's Trace tab. This is the only thing the SDK writes to the logs endpoint — it is not a general logging API.
+
+## Exclusions
+
+The SDK never traces its own telemetry uploads (`/requests`, `/traces`, `/logs` on the ingest host), so you won't see recursive noise.
+
+## Kill switches
+
+```python
+capture_spans=False          # per middleware/app, in code
+```
+
+```bash
+APILENS_CAPTURE_SPANS=false  # per deploy — overrides code, can only disable
+```
+
+Falsey values: `0`, `false`, `no`, `off`, `disabled`, empty string.
+
+## Using an existing OpenTelemetry setup
+
+If your service already has OTel instrumentation (database clients, queues, gRPC), export those spans to APILens instead of running the built-in tracer:
+
+```python
+from apilens import install_apilens_exporter
+
+install_apilens_exporter(client, app_id="orders-api", service_name="orders", environment="production")
+```
+
+Spans of kind `db` render amber in the waterfall, `http`/`client` blue, `server` teal, and any failed span red — see [Tracing in the dashboard](/dashboard/tracing).

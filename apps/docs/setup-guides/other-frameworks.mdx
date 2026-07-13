@@ -1,0 +1,67 @@
+---
+title: "Other frameworks"
+description: "Generic ASGI/WSGI middleware, manual capture for non-HTTP workloads, and the OpenTelemetry exporter."
+---
+
+No first-class integration for your stack? You still have three good options before falling back to the raw [Ingest API](/ingest/ingest-api).
+
+## Generic ASGI middleware
+
+Works with any ASGI application (Quart, Sanic in ASGI mode, custom frameworks):
+
+```python
+import os
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.client.middleware import ApiLensASGIMiddleware
+
+client = ApiLensClient(ApiLensConfig(api_key=os.environ["APILENS_API_KEY"]))
+app = ApiLensASGIMiddleware(app, client=client, app_id="custom-api")
+```
+
+## Generic WSGI middleware
+
+Works with any WSGI application (Bottle, Pyramid, CherryPy, plain WSGI):
+
+```python
+from apilens.client.middleware import ApiLensWSGIMiddleware
+
+app = ApiLensWSGIMiddleware(app, client=client, app_id="legacy-api")
+```
+
+Both accept the full set of capture options (`enable_request_logging`, `capture_headers`, `capture_spans`, `max_payload_bytes`, `get_consumer`, `route_resolver`, `parametrize_paths`, …) documented in the [configuration reference](/sdk-reference/python-configuration).
+
+<Tip>
+Without framework route information, path templating falls back to the heuristic (numeric IDs, UUIDs, hashes → `{id}`, `{uuid}`, `{hash}`). If your URLs contain other variable segments, pass a `route_resolver` callback to return the template yourself.
+</Tip>
+
+## Manual capture
+
+For workers, cron jobs, or anything that isn't an inbound HTTP request, record events directly:
+
+```python
+from apilens import ApiLensClient, ApiLensConfig
+
+with ApiLensClient(ApiLensConfig(api_key=os.environ["APILENS_API_KEY"])) as client:
+    client.capture(
+        app_id="nightly-sync",
+        method="POST",
+        path="/jobs/sync",
+        status_code=200,
+        response_time_ms=1543.0,
+    )
+# the context manager flushes on exit
+```
+
+## OpenTelemetry exporter
+
+Already running OTel instrumentation? Attach APILens as an exporter on your existing tracer provider instead of using the SDK's built-in tracing:
+
+```python
+from apilens import install_apilens_exporter
+
+install_apilens_exporter(client, app_id="orders-api", service_name="orders")
+```
+
+## Want a first-class integration?
+
+Tell us on [Discord](https://discord.com/invite/GucYGFRh) or open an issue — framework integrations are thin wrappers over the generic middleware, so they're quick for us to add.

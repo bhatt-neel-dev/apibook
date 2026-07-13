@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Check, Filter, Link2 } from "lucide-react";
+import { ArrowLeft, Check, Link2, Lock } from "lucide-react";
 import {
   Button,
   StatStrip,
   Tabs,
   type Stat,
 } from "@/components/aperture";
+import FilterBar from "../../_shared/filters/FilterBar";
 import {
   ConsumersSection,
   DataTransferredSection,
@@ -70,8 +71,16 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
     const r = Number(searchParams.get("range"));
     return r && !Number.isNaN(r) ? r : 24;
   });
-  const [selectedEnv, setSelectedEnv] = useState<string>(() => searchParams.get("env") || "");
-  const [environments, setEnvironments] = useState<string[]>([]);
+  // Rich filter (env, status, consumer, latency, size, ip, ua …) — method,
+  // path and app are the fixed scope and are excluded from the picker, so this
+  // only ever narrows within the endpoint the user is already on. Seeds from
+  // ?filter=, migrating a legacy ?env= link into a canonical predicate.
+  const [filter, setFilter] = useState<string>(() => {
+    const existing = searchParams.get("filter");
+    if (existing) return existing;
+    const env = searchParams.get("env");
+    return env ? `env:is:${env}` : "";
+  });
 
   // Custom range.
   const [customActive, setCustomActive] = useState<boolean>(() => !!searchParams.get("custom_since"));
@@ -93,12 +102,6 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
     return { since, until: undefined as string | undefined };
   }, [customActive, customSince, customUntil, selectedRange]);
 
-  const rangeLabel = customActive
-    ? customUntil
-      ? `${new Date(customSince).toLocaleString()} – ${new Date(customUntil).toLocaleString()}`
-      : `Since ${new Date(customSince).toLocaleString()}`
-    : TIME_RANGES.find((r) => r.value === selectedRange)?.label || `${selectedRange}h`;
-
   // Keep the URL in sync so the current view is always shareable.
   useEffect(() => {
     if (!method || !path) return;
@@ -111,26 +114,11 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
     } else if (selectedRange !== 24) {
       params.set("range", String(selectedRange));
     }
-    if (selectedEnv) params.set("env", selectedEnv);
+    if (filter) params.set("filter", filter);
     if (appSlugs.length) params.set("apps", appSlugs.join(","));
     if (activeTab !== "overview") params.set("tab", activeTab);
     router.replace(`/projects/${projectSlug}/endpoints/detail?${params.toString()}`, { scroll: false });
-  }, [method, path, selectedRange, selectedEnv, appSlugs, activeTab, customActive, customSince, customUntil, projectSlug, router]);
-
-  // Available environments for the dropdown.
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/environments`);
-        if (res.ok) {
-          const data = await res.json();
-          setEnvironments(data.environments || []);
-        }
-      } catch {
-        /* non-fatal */
-      }
-    })();
-  }, [projectSlug]);
+  }, [method, path, selectedRange, filter, appSlugs, activeTab, customActive, customSince, customUntil, projectSlug, router]);
 
   // Close the custom-range popover on outside click.
   useEffect(() => {
@@ -164,9 +152,9 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
     if (appSlugs.length) params.set("app_slugs", appSlugs.join(","));
     params.set("since", timeParams.since);
     if (timeParams.until) params.set("until", timeParams.until);
-    if (selectedEnv) params.set("environment", selectedEnv);
+    if (filter) params.set("filter", filter);
     return params;
-  }, [method, path, appSlugs, timeParams, selectedEnv]);
+  }, [method, path, appSlugs, timeParams, filter]);
 
   useEffect(() => {
     reqIdRef.current += 1;
@@ -361,30 +349,36 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
           </div>
         </div>
 
-        {environments.length > 0 ? (
-          <select className="environment-dropdown" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
-            <option value="">All environments</option>
-            {environments.map((env) => (
-              <option key={env} value={env}>{env}</option>
-            ))}
-          </select>
-        ) : null}
       </div>
 
-      <div className="endpoint-active-filters" role="status" aria-label="Active filters">
-        <span className="endpoint-active-label">
-          <Filter size={13} /> Active filters
+      {/* Locked scope — the endpoint and app the user is already on. Shown as
+          read-only chips (not part of the editable filter) so it's clear these
+          can't be changed here. */}
+      <div className="endpoint-scope" role="status" aria-label="Locked scope">
+        <span className="endpoint-scope-label">
+          <Lock size={12} /> Scope
         </span>
-        <span className="endpoint-active-chip">
-          <span className="endpoint-active-key">Time</span> {rangeLabel}
+        <span className="endpoint-scope-chip">
+          <span className="endpoint-scope-key">Endpoint</span>
+          <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
+          <span className="endpoint-scope-path" title={path}>{path}</span>
         </span>
-        <span className="endpoint-active-chip">
-          <span className="endpoint-active-key">Env</span> {selectedEnv || "All"}
+        <span className="endpoint-scope-chip">
+          <span className="endpoint-scope-key">App</span>
+          {appSlugs.length === 0 ? "All apps" : appSlugs.length === 1 ? appSlugs[0] : `${appSlugs.length} apps`}
         </span>
-        <span className="endpoint-active-chip">
-          <span className="endpoint-active-key">Apps</span>{" "}
-          {appSlugs.length === 0 ? "All" : appSlugs.length === 1 ? appSlugs[0] : `${appSlugs.length} selected`}
-        </span>
+      </div>
+
+      {/* Editable rich filter — explore this endpoint's data by env, status,
+          consumer, latency, size, ip, ua. path/method/app are excluded (they're
+          the fixed scope above). Sits above the tabs, so it applies on every tab. */}
+      <div className="ep-rl-filterrow endpoint-page-filterbar">
+        <FilterBar
+          projectSlug={projectSlug}
+          value={filter}
+          onChange={setFilter}
+          exclude={["path", "method", "app"]}
+        />
       </div>
 
       <Tabs
@@ -420,7 +414,7 @@ function HealthStrip({ detail }: { detail: EndpointDetail | null }) {
 
   const stats: Stat[] = [
     { label: "Traffic", value: loading ? "—" : formatNumber(detail!.total_requests), sub: loading ? "" : `${(detail!.requests_per_minute || 0).toFixed(2)}/min` },
-    { label: "Error rate", value: loading ? "—" : `${errRate.toFixed(2)}%`, sub: loading ? "" : `${formatNumber(detail!.error_count)} errors`, tone: errTone },
+    { label: "Error rate", value: loading ? "—" : `${errRate.toFixed(2)}%`, sub: loading ? "" : `4xx ${formatNumber(detail!.client_errors || 0)} · 5xx ${formatNumber(detail!.server_errors || 0)}`, tone: errTone },
     { label: "p95 latency", value: loading ? "—" : formatMs(p95), sub: loading ? "" : `p50 ${formatMs(detail!.p50_response_time_ms)}`, tone: p95Tone },
     { label: "Apdex", value: loading ? "—" : apdex.toFixed(3), sub: loading ? "" : `${formatNumber(detail!.slow_requests)} slow`, tone: apdexTone },
   ];

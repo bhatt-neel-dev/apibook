@@ -1,0 +1,49 @@
+---
+title: "Starlette"
+description: "Monitor a Starlette application with APILens."
+---
+
+## Install
+
+```bash
+pip install "apilenss[starlette]"
+```
+
+<Info>
+Requires Python ≥ 3.10 and Starlette ≥ 0.36. Route templates are taken from the matched Starlette route, including routes inside `Mount`s.
+</Info>
+
+## Instrument the app
+
+```python
+import os
+from starlette.applications import Starlette
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.starlette import instrument_app
+
+app = Starlette(routes=[...])
+client = ApiLensClient(ApiLensConfig(api_key=os.environ["APILENS_API_KEY"]))
+instrument_app(app, client, app_id="search-api")
+```
+
+## Identify consumers
+
+Same pattern as FastAPI — call `set_consumer` with the request once your auth has resolved the caller:
+
+```python
+from apilens.starlette import set_consumer
+
+async def homepage(request):
+    set_consumer(request, identifier=request.user.username, group="internal")
+    ...
+```
+
+Or pass a centralized `get_consumer(scope, headers)` resolver to `instrument_app`.
+
+## Tune capture
+
+All middleware options (`enable_request_logging`, `capture_headers`, `capture_spans`, `max_payload_bytes`, …) and client options (batching, retries, TLS) are in the [Python configuration reference](/sdk-reference/python-configuration).
+
+## Verify
+
+Send a few requests and open the **Traffic** page. Data should appear within seconds of the SDK's 3-second flush.

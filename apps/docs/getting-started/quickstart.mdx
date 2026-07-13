@@ -1,84 +1,78 @@
 ---
-title: 'Quickstart'
-description: 'Run APILens locally in minutes with backend, frontend, and telemetry ingest.'
+title: "Quickstart"
+description: "From zero to live API metrics in about five minutes."
 ---
 
-## Prerequisites
+This guide takes you from an empty dashboard to live traffic, request logs, and traces. It uses FastAPI as the example — the flow is identical for every framework, only the two middleware lines differ.
 
-- Python 3.11+
-- Node.js 20+
-- PostgreSQL 15+
-- `uv`
+<Steps>
+  <Step title="Create a project">
+    Sign in at [app.apilens.ai](https://app.apilens.ai) and create a project. A project groups all the services (apps) that belong to one product, so you can monitor them together.
 
-## 1. Clone and Setup
+    <Frame caption="A project with one app per microservice">
+      <img src="/images/apps.png" alt="Apps page listing services in a project" />
+    </Frame>
+  </Step>
+  <Step title="Add an app">
+    Inside the project, click **Create App** and pick your framework. Each app represents one deployable service — `orders-api`, `payment-service`, and so on. The app's slug becomes the `app_id` you pass to the SDK.
+  </Step>
+  <Step title="Create an API key">
+    Go to **Settings → API keys** and create a key. Copy it now — the full key is shown only once.
 
-```bash
-git clone https://github.com/apilens/apilens.git
-cd apilens
-```
+    <Note>
+    API keys are **project-level**: one key authenticates every app in the project. The SDK's `app_id` tells APILens which app the traffic belongs to.
+    </Note>
+  </Step>
+  <Step title="Install the SDK">
+    ```bash
+    pip install "apilenss[fastapi]"
+    ```
 
-## 2. Backend
+    <Warning>
+    The PyPI distribution is `apilenss` (double *s*); the import package is `apilens`.
+    </Warning>
+  </Step>
+  <Step title="Add the middleware">
+    ```python
+    from fastapi import FastAPI
+    from apilens.fastapi import ApiLensMiddleware
 
-```bash
-cd backend
-uv venv
-source .venv/bin/activate
-uv pip install -e .
-cp .env.example .env
-python manage.py migrate
-python manage.py runserver
-```
+    app = FastAPI()
+    app.add_middleware(
+        ApiLensMiddleware,
+        api_key="apilens_xxx",       # better: os.environ["APILENS_API_KEY"]
+        app_id="orders-api",
+        env="development",           # defaults to "production"
+    )
+    ```
+  </Step>
+  <Step title="Send a few requests">
+    Run your service and hit any endpoint a couple of times:
 
-Backend runs at `http://localhost:8000/api/v1`.
+    ```bash
+    curl http://localhost:8000/orders
+    ```
 
-## 3. Frontend
+    The SDK batches telemetry in a background thread and flushes every 3 seconds, so data shows up on the **Traffic** page almost immediately. Endpoints are discovered automatically from traffic — there is nothing to pre-register.
+  </Step>
+</Steps>
 
-In a new terminal:
+## What you get out of the box
 
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
-```
+With just the middleware in place, every request is captured with method, templated path, status code, response time, payload sizes, and a trace ID. Unhandled exceptions and 5xx responses automatically attach a stack trace you can read in the request's **Trace** tab.
 
-Frontend runs at `http://localhost:3000`.
+Two things need a line or two more from you:
 
-## 4. First Login
+- **[Consumer identification](/sdk-reference/consumers)** — tell APILens who is calling, to unlock the Consumers page.
+- **[Capture tuning](/getting-started/data-privacy)** — bodies and headers are captured by default (with sensitive headers redacted); turn them off if your payloads are sensitive.
 
-1. Open `http://localhost:3000`
-2. Enter your email and request a magic link
-3. Copy verification link from backend console email output
-4. Open link and continue to app
+## Next steps
 
-## 5. Send First Ingest Event
-
-Use an app API key and send sample request telemetry:
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/ingest/requests" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: sk_live_xxxxxxxxx" \
-  -d '{
-    "requests": [
-      {
-        "timestamp": "2026-02-13T12:00:00Z",
-        "environment": "production",
-        "method": "GET",
-        "path": "/v1/orders",
-        "status_code": 200,
-        "response_time_ms": 120,
-        "request_size": 245,
-        "response_size": 1402,
-        "ip_address": "203.0.113.10",
-        "user_agent": "web-checkout"
-      }
-    ]
-  }'
-```
-
-Then open your app endpoints page to see the endpoint detected automatically.
-
-<Note>
-Endpoint records are auto-created from ingest traffic. You do not need to pre-create endpoints for normal usage.
-</Note>
+<CardGroup cols={2}>
+  <Card title="Tour the dashboard" href="/dashboard/traffic" icon="chart-line">
+    What every page shows and how to filter it.
+  </Card>
+  <Card title="Full SDK configuration" href="/sdk-reference/python-configuration" icon="sliders">
+    Every option, default, and environment variable.
+  </Card>
+</CardGroup>

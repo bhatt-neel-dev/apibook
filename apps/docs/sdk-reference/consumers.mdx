@@ -1,0 +1,83 @@
+---
+title: "Consumer identification"
+description: "How to tell APILens who is calling — explicitly, never inferred."
+---
+
+APILens never reads your `Authorization` headers, decodes JWTs, or inspects sessions. Consumer identity is **only** what your code reports. That's a privacy stance, but also a correctness one: you know whether the right identity is a user, a tenant, or an API key — we don't.
+
+## The API
+
+```python
+set_consumer(request=None, *, identifier, name=None, group=None)
+```
+
+| Argument | Required | Meaning |
+|---|---|---|
+| `identifier` | Yes | **Stable** ID — deduplication and filtering key off this. Use a user ID, tenant slug, or API-key name. |
+| `name` | No | Display label on the dashboard. Safe to change later; history stays attached to the identifier. |
+| `group` | No | Free-form grouping — plan tier, org, region. Shown as a tag and filterable. |
+| `request` | Depends | Pass it in ASGI frameworks; omit it in Flask (`before_request`) and Django where the current request is ambient. |
+
+`track_consumer` is an alias. Import from your framework module (`apilens.fastapi`, `apilens.flask`, `apilens.django`, `apilens.starlette`) or from `apilens` directly.
+
+## Two placement patterns
+
+**Per-request** — call `set_consumer` where auth resolves the caller:
+
+<CodeGroup>
+```python FastAPI / Starlette
+from apilens.fastapi import set_consumer
+
+async def identify(request: Request, user=Depends(get_current_user)):
+    set_consumer(request, identifier=user.id, name=user.email, group=user.plan)
+```
+
+```python Flask
+from apilens.flask import set_consumer
+
+@app.before_request
+def identify():
+    if g.get("user"):
+        set_consumer(identifier=g.user.id, name=g.user.email)
+```
+
+```python Django
+from apilens.django import set_consumer
+
+def view(request):
+    if request.user.is_authenticated:
+        set_consumer(request, identifier=request.user.pk, name=request.user.email)
+```
+</CodeGroup>
+
+**Centralized resolver** — pass `get_consumer` to the middleware and keep handlers clean:
+
+```python
+def resolve(scope, headers):            # ASGI signature
+    key_name = lookup_key_name(headers.get("x-client-id"))
+    return {"id": key_name, "group": "partner"} if key_name else None
+
+app.add_middleware(ApiLensMiddleware, ..., get_consumer=resolve)
+```
+
+Signatures: ASGI `get_consumer(scope, headers)` · WSGI `get_consumer(environ)` · Django `get_consumer(request)` (or the `APILENS_GET_CONSUMER` setting as a callable/dotted path).
+
+<Note>
+Precedence: an explicit `set_consumer` call always wins; the resolver runs only when no consumer was set for the request.
+</Note>
+
+## Accepted shapes
+
+The SDK normalizes whatever you return or pass:
+
+- a **string** → becomes the identifier
+- a **dict** with `id`/`identifier`/`consumer_id`, `name`/`username`/`consumer_name`, `group`/`consumer_group`
+- an **object** with those attributes
+
+## Choosing a good identifier
+
+- Prefer IDs that survive renames (`user_1842` over `"Jane Smith"`).
+- For machine callers, use the API key's *name or prefix* — never the secret itself.
+- Keep cardinality meaningful: "one consumer per end user" is right for a SaaS API; for a public API behind keys, one consumer per key is usually more useful.
+
+What the dashboard does with all this: [Consumers](/dashboard/consumers).

@@ -1,0 +1,34 @@
+---
+title: "Endpoints"
+description: "Auto-discovered endpoints with per-route metrics, recent requests, and drill-down."
+---
+
+APILens discovers endpoints from traffic — there is nothing to register and no OpenAPI spec to upload. The first time a route receives a request, it appears in the endpoints table with its metrics accumulating.
+
+## Route templates, not raw URLs
+
+Endpoints are keyed by **method + route template**. `GET /products/42` and `GET /products/324` are one endpoint: `GET /products/{product_id}`. The SDK resolves the template from your framework's actual route table (FastAPI, Django, Flask, Starlette, Litestar, BlackSheep), falling back to a heuristic that recognizes numeric IDs, UUIDs, ULIDs, and hashes. Without this, ID-bearing routes would explode into thousands of one-request "endpoints" and every per-endpoint metric would be meaningless.
+
+The exact URL of each request is still preserved (`raw_path`) and shown in the request log — grouping never costs you fidelity. Details and edge cases in [Path templating](/sdk-reference/path-templating).
+
+## Endpoint detail
+
+Click any endpoint — from the Traffic table or a request log row — to open its detail view:
+
+<Frame caption="Endpoint detail: summary, requests over time, and most recent requests">
+  <img src="/images/endpoint-detail.png" alt="Endpoint detail view" />
+</Frame>
+
+- **Summary** — total requests, requests per minute, unique consumers, and client/server error counts for the selected period.
+- **Requests over time** — the endpoint's own traffic chart.
+- **Most recent requests** — the latest individual requests with status, consumer, size, and timing; click through to the full [request detail](/dashboard/request-logs) with headers, payloads, and trace.
+
+## Housekeeping
+
+- Endpoints carry their metrics per environment (`production`, `staging`, …) — the environment comes from the SDK's `environment` setting.
+- A **Copy path** action is available on each row's menu; use it when adding path filters.
+- Renamed or deleted a route? The old endpoint simply stops receiving traffic and ages out of the selected time range — no manual cleanup.
+
+<Note>
+Excluding endpoints from metrics (e.g. `/health` checks polluting your request counts) is not supported yet — it's on the [roadmap](/roadmap). In the meantime, use a `path:` filter to hide them from a view.
+</Note>

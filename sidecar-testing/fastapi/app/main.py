@@ -108,6 +108,14 @@ async def list_orders(_: None = Depends(consumer_dep)):
     return {"ok": True}
 
 
+# --- Path-templating test route: different ids must collapse to one endpoint ---
+# The SDK should report path=/v1/orders/{order_id} (framework template) while
+# raw_path keeps the exact URL (/v1/orders/123, /v1/orders/456, …).
+@app.get("/v1/orders/{order_id}")
+async def get_order(order_id: str, _: None = Depends(consumer_dep)):
+    return {"order_id": order_id, "status": "fetched"}
+
+
 # --- Error-capture test routes (exercise automatic exception/5xx trace logs) ---
 @app.get("/v1/boom")
 async def boom(_: None = Depends(consumer_dep)):

@@ -3,10 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .client import ApiLensClient
+from .client._routes import litestar_route_template
 from .client.middleware import ApiLensASGIMiddleware
 
 
-@dataclass(slots=True)
+# eq=False keeps identity hashing — Litestar stores plugins in a frozenset, so
+# the plugin must be hashable (the default dataclass __eq__ makes it unhashable).
+@dataclass(slots=True, eq=False)
 class ApiLensPlugin:
     """Litestar plugin-protocol style integration.
 
@@ -46,6 +49,7 @@ class ApiLensPlugin:
                 environment=self.environment,
                 capture_spans=self.capture_spans,
                 service_name=self.service_name,
+                route_resolver=litestar_route_template,
             )
         )
         app_config.middleware = middleware
@@ -71,5 +75,6 @@ def instrument_app(
         environment=environment,
         capture_spans=capture_spans,
         service_name=service_name,
+        route_resolver=litestar_route_template,
     )
     return app

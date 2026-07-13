@@ -1,48 +1,68 @@
 ---
-title: 'Request Schema'
-description: 'Field-level schema reference for ingest request telemetry payloads.'
+title: "Record schemas"
+description: "Field-level reference for the three ingest record types: requests, spans, and logs."
 ---
 
-## Request Item Fields
+All three ingest endpoints take a JSON body with one array of records. Fields marked required must be present; everything else defaults to empty/zero. `app_id` is required on **every** record type — it attributes the record to an app in your project (the API key already identifies the project).
+
+## RequestRecord — `POST /v1/requests`
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `timestamp` | ISO datetime | Yes | UTC recommended |
-| `environment` | string | Yes | Example: `production`, `staging` |
-| `method` | string | Yes | HTTP method, normalized uppercase |
-| `path` | string | Yes | Endpoint path (ex. `/v1/orders`) |
-| `status_code` | integer | Yes | HTTP status code |
-| `response_time_ms` | number | Yes | Duration in milliseconds |
-| `request_size` | integer | Yes | Request payload bytes |
-| `response_size` | integer | Yes | Response payload bytes |
-| `ip_address` | string | No | Optional source IP |
-| `user_agent` | string | No | Consumer identifier fallback |
-| `request_payload` | string | No | Raw request body sample (truncated server-side) |
-| `response_payload` | string | No | Raw response body sample (truncated server-side) |
+| `app_id` | string | **Yes** | App slug within the project. |
+| `timestamp` | ISO 8601 datetime | Yes | UTC, e.g. `2026-07-03T12:00:00Z`. |
+| `environment` | string | Yes | `production`, `staging`, … |
+| `method` | string | Yes | Uppercase HTTP method. |
+| `path` | string | Yes | **Route template** (`/v1/orders/{order_id}`) — this is the endpoint grouping key. |
+| `raw_path` | string | No | Exact URL as received (`/v1/orders/8412`). |
+| `status_code` | integer | Yes | |
+| `response_time_ms` | number | Yes | |
+| `request_size` / `response_size` | integer | No | Bytes; default `0`. |
+| `ip_address` | string | No | Client IP (resolve `X-Forwarded-For` yourself). |
+| `user_agent` | string | No | |
+| `consumer_id` / `consumer_name` / `consumer_group` | string | No | See [Consumer identification](/sdk-reference/consumers). |
+| `request_payload` / `response_payload` | string | No | Body text, truncated client-side (SDKs cap at 64 KB). |
+| `request_headers` / `response_headers` | string | No | JSON-serialized header map — **redact secrets before sending**. |
+| `base_url` | string | No | `scheme://host` of the serving app. |
+| `trace_id` / `span_id` | string | No | Hex IDs linking the request to its trace. |
+| `project_slug` | string | No | Optional assertion; the key already implies the project. |
 
-## Batch Envelope
+## SpanRecord — `POST /v1/traces`
 
-```json
-{
-  "requests": [
-    { "...request item...": "..." }
-  ]
-}
-```
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `app_id` | string | **Yes** | |
+| `timestamp` | ISO 8601 datetime | Yes | Span start time. |
+| `trace_id` | string | Yes | Shared across all spans of one trace. |
+| `span_id` | string | Yes | |
+| `parent_span_id` | string | No | Empty for the root span. |
+| `name` | string | Yes | e.g. `POST /charge` or the outbound URL. |
+| `kind` | string | No | `server` \| `client` \| `http` \| `db` \| `internal` (default `internal`) — drives waterfall coloring. |
+| `duration_ms` | number | Yes | |
+| `status` | string | No | `ok` (default) or `error`. |
+| `status_code` | integer | No | HTTP status, when applicable. |
+| `service_name` | string | No | Shown on the span row. |
+| `environment` | string | No | Default `production`. |
+| `attributes` | object | No | Free-form key/values. |
 
-## Validation Notes
+## LogRecord — `POST /v1/logs`
 
-- Keep batch size under `1000`
-- Ensure timestamps are valid ISO-8601
-- Use stable path format for accurate endpoint grouping
-- Ensure status codes are in valid HTTP ranges
-- Payload fields are stored as text and truncated to safe limits
+Log records surface as **Trace messages** on the request's Trace tab. The SDKs use this exclusively for automatic error capture; if you ingest directly you can send your own.
 
-## Recommended SDK Normalization
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `app_id` | string | **Yes** | |
+| `timestamp` | ISO 8601 datetime | Yes | |
+| `level` | string | Yes | e.g. `ERROR`. |
+| `message` | string | Yes | Keep under 4,000 chars. |
+| `logger_name` | string | No | SDKs use `apilens.exception` / `apilens.http`. |
+| `payload` | string | No | Long-form detail (stack trace); keep under 8,000 chars. |
+| `endpoint_method` / `endpoint_path` | string | No | Correlate to an endpoint. |
+| `status_code` | integer | No | |
+| `consumer_id` / `consumer_name` / `consumer_group` | string | No | |
+| `trace_id` / `span_id` | string | No | Required in practice to appear on a request's Trace tab. |
+| `attributes` | object | No | Free-form key/values. |
 
-Before sending telemetry from SDK:
-
-1. Uppercase method
-2. Remove query string from path
-3. Convert durations to integer milliseconds
-4. Clamp negative sizes/timings to `0`
+<Note>
+Validation is strict: one malformed record fails the whole batch with `422` and nothing is stored. Validate locally against these tables, and keep batches ≤ 1,000 records.
+</Note>

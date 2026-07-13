@@ -1,20 +1,80 @@
 ---
-title: "API Lens Developer Docs"
-description: "Build, ingest, and scale API observability on API Lens."
+title: "Introduction"
+description: "APILens gives you metrics, request logs, traces, and consumer insights for every API in your project — by adding a few lines of code."
+mode: "wide"
 ---
 
-Welcome to the developer documentation for API Lens.
+APILens is an API observability platform built around one idea: **you run more than one service**. Group all the APIs that belong to a product into a single project, monitor them side by side, and drill from a traffic spike down to the exact request — with its headers, payload, trace waterfall, and stack trace — in a couple of clicks.
 
-Use this portal to:
+<Frame caption="The Traffic page — live-updating metrics with client/server error split across all apps in a project">
+  <img src="/images/traffic.png" alt="APILens Traffic dashboard" />
+</Frame>
 
-- integrate telemetry ingest from your services
-- implement passwordless + password auth flows
-- consume tenant-safe analytics APIs
-- build internal SDKs and platform tooling
+## Explore
 
-## Start here
+<CardGroup cols={3}>
+  <Card title="How it works" icon="diagram-project" href="/getting-started/how-it-works">
+    A lightweight middleware batches telemetry in a background thread and ships it to our ingest service. No agents, no sidecars.
+  </Card>
+  <Card title="Dashboard tour" icon="chart-line" href="/dashboard/traffic">
+    Traffic, request logs, traces, consumers, and endpoint analytics — everything the dashboard shows and how to use it.
+  </Card>
+  <Card title="Data privacy" icon="shield-halved" href="/getting-started/data-privacy">
+    What the SDK captures, what it redacts by default, and every switch to turn capture off.
+  </Card>
+</CardGroup>
 
-1. [Quickstart](/getting-started/quickstart)
-2. [Architecture](/getting-started/architecture)
-3. [Ingest API](/ingest/ingest-api)
-4. [API Reference](/api-reference)
+## What makes APILens different
+
+- **Projects contain apps.** One project-level API key covers every service in your product. Attribute traffic per app with `app_id`, then filter any page by app.
+- **Client vs server errors are separate, everywhere.** A spike in `4xx` (someone misusing your API) is a different problem from a spike in `5xx` (your bug). APILens never blends them into one "error rate".
+- **Tracing is automatic.** Every request gets a trace; outbound `requests`/`httpx` calls become child spans; unhandled exceptions and 5xx responses attach a stack trace to the request — with zero extra code.
+- **Consumers are explicit.** APILens never guesses identity from auth headers. You tell it who the consumer is; it never reads your tokens.
+- **The dashboard is live.** Pages poll every few seconds with a rolling window — no refresh button mashing during an incident.
+
+## Get started
+
+<Steps>
+  <Step title="Create a project and app">
+    Sign in at [app.apilens.ai](https://app.apilens.ai), create a project, add an app for each service, and generate an API key in **Settings → API keys**.
+  </Step>
+  <Step title="Add the middleware">
+    Install the SDK and add two lines to your service. Pick your framework below for exact instructions.
+  </Step>
+  <Step title="Watch data arrive">
+    Deploy (or just run locally) and send a few requests. Metrics, logs, and traces appear on the dashboard within seconds.
+  </Step>
+</Steps>
+
+## Setup guides
+
+<AccordionGroup>
+  <Accordion title="Python" icon="python" defaultOpen>
+    The Python SDK (`apilenss` on PyPI) has first-class integrations for:
+
+    <CardGroup cols={3}>
+      <Card title="FastAPI" href="/setup-guides/fastapi" icon="bolt" />
+      <Card title="Django" href="/setup-guides/django" icon="d" />
+      <Card title="Flask" href="/setup-guides/flask" icon="flask" />
+      <Card title="Starlette" href="/setup-guides/starlette" icon="star" />
+      <Card title="Litestar" href="/setup-guides/litestar" icon="feather" />
+      <Card title="BlackSheep" href="/setup-guides/blacksheep" icon="cloud" />
+    </CardGroup>
+
+    Any other ASGI or WSGI framework works via the [generic middleware](/setup-guides/other-frameworks).
+  </Accordion>
+  <Accordion title="JavaScript / TypeScript (beta)" icon="node-js">
+    The JS SDK (`apilens-js-sdk` on npm) currently supports **Express**. More frameworks are on the [roadmap](/roadmap).
+
+    <CardGroup cols={3}>
+      <Card title="Express" href="/setup-guides/express" icon="node-js" />
+    </CardGroup>
+  </Accordion>
+  <Accordion title="Anything that speaks HTTP" icon="code">
+    No SDK for your stack yet? Send telemetry straight to the [Ingest API](/ingest/ingest-api) — three JSON endpoints and an `X-API-Key` header.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+Looking for alerts or uptime checks? They're not built yet — see the [roadmap](/roadmap) for what's coming and what to use in the meantime.
+</Note>

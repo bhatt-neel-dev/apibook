@@ -1,0 +1,41 @@
+---
+title: "Troubleshooting"
+description: "Fast checks for no data, missing traces, empty consumers, and sign-in problems."
+---
+
+## No data on the dashboard
+
+Work top-down — each check takes seconds:
+
+1. **Package installed and middleware added?** Remember: install `apilenss` (double *s*), import `apilens`.
+2. **API key valid?** It must be a project-level key from *this* project's **Settings → API keys**. Check the key's `last_used_at` there — if it updates, ingest is receiving you and the problem is filtering, not delivery.
+3. **`app_id` correct?** It must match an app slug in the project. Traffic with an unknown `app_id` won't appear under your apps.
+4. **Time range & filters.** Widen the range, clear the filter bar, check the app selector and environment filter (SDK default environment is `production` — local runs often set `development`).
+5. **Process long-lived enough to flush?** The SDK flushes every 3 seconds in a background thread. A script that exits immediately should use the client as a context manager so it flushes on exit.
+6. **Egress.** Your service must reach `https://ingest.apilens.ai`. For private CAs set `ca_bundle_path`; check proxy/firewall rules.
+
+## Traces or Trace tab empty
+
+- Tracing requires a non-empty **`app_id`** — with a key alone you get metrics but no spans.
+- Check `capture_spans=True` isn't overridden and `APILENS_CAPTURE_SPANS` isn't set to a falsey value in the deploy environment (the env var wins over code).
+- A clean request has no *Trace messages* — that's expected. Error messages appear only on unhandled exceptions or 5xx responses.
+- Cross-service traces stitch only if every hop runs the middleware and your HTTP client is `requests` or `httpx` (that's where `traceparent` is injected).
+
+## Consumers page is empty
+
+Consumers only exist if your code reports them — APILens never infers identity. Add a `set_consumer` call after auth: see [Consumer identification](/sdk-reference/consumers). If consumers appear but look duplicated, your `identifier` isn't stable across requests.
+
+## Endpoints look wrong
+
+- **Thousands of near-identical endpoints** (`/orders/8412`, `/orders/8413`, …): path templating isn't engaging. Verify `APILENS_PARAMETRIZE_PATHS` isn't disabled; with the generic middleware, consider a `route_resolver`. See [Path templating](/sdk-reference/path-templating).
+- **Split endpoints** (`/orders/{id}` vs `/orders/{order_id}`): some traffic matched a framework route and some fell back to the heuristic — inspect raw paths of a few requests in each group.
+
+## Sign-in problems
+
+- **Magic link not received**: check spam and corporate mail rules; request a fresh link (links are one-time and the newest invalidates older ones).
+- **Link opens but login fails**: make sure it opens on `https://app.apilens.ai` in the same browser; clear the session and retry.
+- **Passkey not offered**: passkeys are per-browser/device — fall back to magic link, then re-register the passkey from account settings.
+
+## Still stuck
+
+Ask on [Discord](https://discord.com/invite/GucYGFRh) with: project + app slug, an approximate timestamp, the endpoint method + path, and what you expected vs. saw. If it's an ingest problem, include the SDK version (`apilenss/0.4.0` appears in your key's user-agent trail).

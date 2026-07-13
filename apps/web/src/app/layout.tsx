@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Agentation } from "agentation";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { SpotlightProvider } from "@/components/providers/SpotlightProvider";
@@ -30,6 +31,9 @@ export default function RootLayout({
             </ToastProvider>
           </ThemeProvider>
         </AuthProvider>
+        {process.env.NODE_ENV === "development" && (
+          <Agentation endpoint="http://localhost:4747" />
+        )}
       </body>
     </html>
   );

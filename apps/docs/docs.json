@@ -14,55 +14,89 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Guide",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Start Here",
+            "group": "Get Started",
             "pages": [
               "index",
-              "getting-started/introduction",
               "getting-started/quickstart",
-              "getting-started/architecture"
+              "getting-started/how-it-works",
+              "getting-started/data-privacy"
             ]
           },
           {
-            "group": "Operate",
+            "group": "Dashboard",
             "pages": [
-              "customer/introduction",
-              "customer/sign-in-and-access",
-              "customer/create-your-first-app",
-              "customer/monitor-endpoints-and-logs",
-              "customer/troubleshooting"
+              "dashboard/traffic",
+              "dashboard/endpoints",
+              "dashboard/request-logs",
+              "dashboard/tracing",
+              "dashboard/consumers",
+              "dashboard/errors"
             ]
           },
           {
-            "group": "Authentication",
+            "group": "Setup Guides",
             "pages": [
+              "setup-guides/fastapi",
+              "setup-guides/django",
+              "setup-guides/flask",
+              "setup-guides/starlette",
+              "setup-guides/litestar",
+              "setup-guides/blacksheep",
+              "setup-guides/express",
+              "setup-guides/other-frameworks"
+            ]
+          },
+          {
+            "group": "SDK Reference",
+            "pages": [
+              "sdk-reference/python-configuration",
+              "sdk-reference/consumers",
+              "sdk-reference/path-templating",
+              "sdk-reference/tracing"
+            ]
+          },
+          {
+            "group": "Platform",
+            "pages": [
+              "platform/projects-apps-keys",
               "auth/authentication-flow",
               "auth/passwordless-and-password"
             ]
           },
           {
-            "group": "Ingest",
+            "group": "Ingest API",
             "pages": [
               "ingest/ingest-api",
               "ingest/request-schema"
             ]
           },
           {
-            "group": "SDK",
+            "group": "Resources",
             "pages": [
-              "sdk/building-an-sdk",
-              "sdk/python-setup"
+              "roadmap",
+              "support/troubleshooting"
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
           {
-            "group": "API Reference",
+            "group": "Ingest API",
             "openapi": {
-              "source": "https://api.apilens.ai/api/v1/openapi.json",
+              "source": "https://ingest.apilens.ai/v1/openapi.json",
               "directory": "api-reference"
             }
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Blog & Releases",
+        "groups": [
           {
             "group": "Engineering Blog",
             "pages": [
@@ -133,5 +167,43 @@
       "github": "https://github.com/apilens/apilens",
       "discord": "https://discord.com/invite/GucYGFRh"
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/getting-started/introduction",
+      "destination": "/"
+    },
+    {
+      "source": "/customer/troubleshooting",
+      "destination": "/support/troubleshooting"
+    },
+    {
+      "source": "/sdk/python-setup",
+      "destination": "/sdk-reference/python-configuration"
+    },
+    {
+      "source": "/customer/create-your-first-app",
+      "destination": "/getting-started/quickstart"
+    },
+    {
+      "source": "/customer/monitor-endpoints-and-logs",
+      "destination": "/dashboard/request-logs"
+    },
+    {
+      "source": "/customer/introduction",
+      "destination": "/"
+    },
+    {
+      "source": "/customer/sign-in-and-access",
+      "destination": "/auth/passwordless-and-password"
+    },
+    {
+      "source": "/sdk/building-an-sdk",
+      "destination": "/ingest/ingest-api"
+    },
+    {
+      "source": "/getting-started/architecture",
+      "destination": "/getting-started/how-it-works"
+    }
+  ]
 }

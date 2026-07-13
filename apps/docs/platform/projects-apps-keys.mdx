@@ -1,0 +1,45 @@
+---
+title: "Projects, apps & API keys"
+description: "How APILens organizes your services — and why keys are project-level."
+---
+
+APILens is structured around how modern backends are actually built: a product is rarely one service. The hierarchy is simple:
+
+```
+Project  (your product, e.g. "Neel's Store")
+ ├── App: catalog-service      ─┐
+ ├── App: cart-service          │  one project-level API key
+ ├── App: payment-service       ├─ authenticates all of them;
+ ├── App: order-service         │  app_id attributes the traffic
+ └── App: inventory-service    ─┘
+```
+
+<Frame caption="One project, one app per microservice">
+  <img src="/images/apps.png" alt="Apps in a project" />
+</Frame>
+
+## Projects
+
+A project groups the services of one product so they share a dashboard: the Traffic page aggregates across apps (filterable per app), consumers are project-wide, and traces stitch across services. Project names and slugs are globally unique.
+
+## Apps
+
+An app is one deployable service. Its slug is the **`app_id`** you pass to the SDK, and it's what the app selector filters by. Create one app per service — not per environment; environments (`production`, `staging`, …) are a label on the telemetry itself, set via the SDK's `environment` option.
+
+## API keys
+
+Keys live at the **project** level: create them in **Settings → API keys**, and one key authenticates ingest for every app in the project.
+
+- The full key is shown **once**, at creation. Afterwards only the prefix and last-used time are visible.
+- Keys can be named (per deploy environment or per team) and revoked independently.
+- `last_used_at` tells you whether a key is still active before you revoke it.
+
+<Tip>
+One key per *deployment environment* (e.g. `prod-key`, `staging-key`) is a good default — you can revoke staging experiments without touching production, and `last_used_at` stays meaningful.
+</Tip>
+
+Why project-level instead of per-app? Adding a sixth microservice shouldn't mean minting and distributing a sixth secret. The key authenticates *the project*; the SDK's `app_id` (which is not a secret) does the attribution. If a key leaks, you rotate one credential and redeploy the project's services with the new value.
+
+## Dashboard sign-in
+
+The dashboard itself (your human account, not the telemetry) authenticates via the APILens identity service: magic-link email, passkeys (WebAuthn), or password — with optional TOTP two-factor and backup codes. Dashboard sessions never share credentials with ingest; API keys can't log into the dashboard and dashboard sessions can't ingest telemetry.

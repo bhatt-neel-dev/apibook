@@ -12,6 +12,8 @@ class RequestRecord:
     path: str
     status_code: int
     response_time_ms: float
+    # Exact request path for the log; ``path`` is the grouping template.
+    raw_path: str = ""
     project_slug: str = ""
     app_id: str = ""  # Required by backend API
     request_size: int = 0
@@ -40,6 +42,9 @@ class RequestRecord:
         path = self.path or "/"
         if not path.startswith("/"):
             path = f"/{path}"
+        raw_path = self.raw_path or path
+        if not raw_path.startswith("/"):
+            raw_path = f"/{raw_path}"
 
         return {
             "project_slug": self.project_slug or "",
@@ -48,6 +53,7 @@ class RequestRecord:
             "environment": self.environment,
             "method": (self.method or "GET").upper(),
             "path": path,
+            "raw_path": raw_path,
             "status_code": int(self.status_code),
             "response_time_ms": float(self.response_time_ms),
             "request_size": int(self.request_size or 0),

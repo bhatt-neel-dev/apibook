@@ -1,63 +1,69 @@
 ---
-title: 'Ingest API'
-description: 'Send API request telemetry to APILens using app-scoped API keys.'
+title: "Ingest API"
+description: "Send telemetry to APILens directly over HTTP — the same API the SDKs use."
 ---
 
-## Endpoint
+Everything the SDKs send goes through this API. If there's no SDK for your stack — or you're building your own integration — you can POST telemetry directly.
 
-`POST /ingest/requests`
+**Base URL:** `https://ingest.apilens.ai/v1`
 
-- Auth: `X-API-Key` header
-- Max batch size: `1000` request items per call
-- Scope: API key must belong to target app
+## Authentication
 
-## Request Example
+Every request needs your project-level API key in the `X-API-Key` header. Create keys in **Settings → API keys**. A missing or revoked key returns `401` with an `authentication_error` body.
 
-```json
-{
-  "requests": [
-    {
-      "timestamp": "2026-02-13T12:00:00Z",
-      "environment": "production",
-      "method": "POST",
-      "path": "/v1/orders",
-      "status_code": 201,
-      "response_time_ms": 184,
-      "request_size": 512,
-      "response_size": 1024,
-      "ip_address": "203.0.113.10",
-      "user_agent": "checkout-service",
-      "request_payload": "{\"sku\":\"sku_123\",\"qty\":1}",
-      "response_payload": "{\"order_id\":\"ord_123\",\"status\":\"created\"}"
-    }
-  ]
-}
+## Endpoints
+
+| Method & path | Purpose | Body |
+|---|---|---|
+| `POST /v1/requests` | Request telemetry (metrics + request logs) | `{"requests": [RequestRecord, ...]}` |
+| `POST /v1/traces` | Trace spans | `{"spans": [SpanRecord, ...]}` |
+| `POST /v1/logs` | Error/trace log messages | `{"logs": [LogRecord, ...]}` |
+| `GET /v1/health` | Service health | — |
+
+Each batch endpoint accepts up to **1,000 records** per call and responds with `{"accepted": <count>}`.
+
+## Example
+
+```bash
+curl -X POST "https://ingest.apilens.ai/v1/requests" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: apilens_xxx" \
+  -d '{
+    "requests": [
+      {
+        "app_id": "orders-api",
+        "timestamp": "2026-07-03T12:00:00Z",
+        "environment": "production",
+        "method": "GET",
+        "path": "/v1/orders/{order_id}",
+        "raw_path": "/v1/orders/8412",
+        "status_code": 200,
+        "response_time_ms": 42.5,
+        "request_size": 0,
+        "response_size": 1402,
+        "consumer_id": "acme-corp",
+        "trace_id": "b4b36981da73c31404a510f0d5a6d746"
+      }
+    ]
+  }'
 ```
 
-## Response
+The endpoint `GET /v1/orders/{order_id}` is auto-created on first sight — nothing to pre-register. Send `path` as the route template and the exact URL as `raw_path`; if you send raw URLs as `path`, each unique URL becomes its own endpoint (see [Path templating](/sdk-reference/path-templating) for what the SDKs do here).
 
-```json
-{
-  "accepted": 1
-}
-```
+## Responses and errors
 
-## Behavior
+| Status | Body | Meaning |
+|---|---|---|
+| `200` | `{"accepted": n}` | Batch stored. |
+| `401` | `{"error": "authentication_error", "detail": ...}` | Missing/invalid `X-API-Key`. |
+| `422` | `{"error": "validation_error", "detail": ...}` | A record failed schema validation — nothing in the batch is stored. |
+| `500` | `{"error": "internal_error", ...}` | Retry with backoff. |
 
-- Endpoint metadata is auto-created or updated from ingest events
-- Unsupported endpoint methods are still ingested as raw events
-- Environment is queryable in dashboard analytics filters
-- Optional request/response payload samples are captured when provided
+## Building a client? Copy the SDK's manners
 
-## Failure Modes
+- Batch up to 200–1,000 records; flush every few seconds.
+- Retry `429` and `5xx` with exponential backoff; treat other `4xx` as permanent.
+- Bound your queue and drop oldest on overflow — never block the caller.
+- Set a versioned `User-Agent` so problems are diagnosable.
 
-- `400/422`: invalid payload or batch too large
-- `401`: invalid/missing API key
-- `403`: key-app scope issue
-
-## Best Practices
-
-- Batch events per short interval (ex. every few seconds)
-- Include consistent `environment` labels
-- Normalize endpoint paths in your SDK before send
-- Track client identifiers via `user_agent` or extension fields if added
+Full field definitions for all three record types: [Request schema](/ingest/request-schema).

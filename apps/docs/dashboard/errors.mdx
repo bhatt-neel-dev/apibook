@@ -1,0 +1,37 @@
+---
+title: "Error analysis"
+description: "Client 4xx and server 5xx are different problems — APILens keeps them separate on every surface."
+---
+
+Most monitoring tools give you one "error rate". APILens doesn't, on purpose. A 4xx means a *caller* did something wrong — bad payload, expired token, hitting a removed endpoint. A 5xx means *you* did. Blending them into one number hides both signals: a noisy integration can mask a real outage, and a bug can hide inside "normal" error noise.
+
+So every surface in APILens shows the split:
+
+- **Traffic** — separate *Client 4xx*, *Server 5xx*, and *Total errors* metric tabs; the request chart stacks success/4xx/5xx in distinct colors; the endpoints table has a column for each.
+- **Consumers** — per-consumer 4xx and 5xx rates, so "this customer's integration is broken" and "this customer is hitting our bug" look different.
+- **Endpoint detail** — client and server error counts side by side in the summary.
+
+## Reading the split
+
+| Pattern | Likely story | Where to go next |
+|---|---|---|
+| 4xx up, 5xx flat | A caller shipped a bad integration, or you shipped a breaking change | [Consumers](/dashboard/consumers) — sort by client 4xx to find who |
+| 5xx up, 4xx flat | You have a bug or a dependency is down | [Request logs](/dashboard/request-logs) filtered `status:>=500`, then the Trace tab |
+| Both up together | Traffic surge hitting limits, or auth/infra failure affecting everyone | Traffic chart for the shape, then request logs |
+| 409/422 concentrated on one endpoint | Contract confusion, race conditions on writes | Endpoint detail → most recent requests |
+
+## From rate to root cause
+
+The path from "5xx is elevated" to a fix is short by design:
+
+1. On **Traffic**, click the *Server 5xx* tab to see when it started and which bars are red.
+2. Filter the endpoints table by error rate, or add `status:>=500` to the filter bar.
+3. Open a failing request and switch to its **Trace** tab — for unhandled exceptions the **full stack trace was captured automatically** at the moment it happened. No reproducing, no grepping logs.
+
+<Frame caption="A 500's stack trace, captured automatically on the failing request">
+  <img src="/images/trace-tab.png" alt="Automatic error trace" />
+</Frame>
+
+<Note>
+Threshold-based **alerting** on error rates isn't built yet — today the split is a dashboard tool, not a paging tool. See the [roadmap](/roadmap).
+</Note>

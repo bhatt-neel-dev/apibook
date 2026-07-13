@@ -137,6 +137,35 @@ framework helpers manage the client lifecycle for you.
 
 ---
 
+## Endpoint grouping (path templating)
+
+`GET /product/123` and `GET /product/324` are the **same endpoint**, so the SDK
+groups them under the route template `GET /product/{id}` instead of exploding
+into one endpoint per id. It does this the accurate way — by reading the
+**matched route** from your framework:
+
+| Framework | Source of the template |
+| --- | --- |
+| FastAPI / Starlette | matched `route.path` |
+| Flask | `url_map` rule (`/product/<int:id>` → `/product/{id}`) |
+| Django / django-ninja | `resolver_match.route` |
+| Litestar | route handler path |
+| BlackSheep | matched route pattern |
+
+The **exact URL** (`/product/123`) is preserved separately and shown in the
+request log — you lose nothing.
+
+When no route matches (an unhandled URL, a raw ASGI app), the SDK falls back to
+a conservative heuristic that parametrizes id-looking segments (integers,
+UUIDs, ULIDs, long hashes) — e.g. `/product/123` → `/product/{id}`. Disable the
+fallback with `parametrize_paths=False` on the middleware, or globally:
+
+```bash
+export APILENS_PARAMETRIZE_PATHS=false
+```
+
+---
+
 ## Framework integrations
 
 | Framework | Module | Mechanism | Tracing |

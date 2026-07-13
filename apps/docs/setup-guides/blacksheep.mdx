@@ -1,0 +1,47 @@
+---
+title: "BlackSheep"
+description: "Monitor a BlackSheep application with APILens."
+---
+
+## Install
+
+```bash
+pip install "apilenss[blacksheep]"
+```
+
+<Info>
+Requires Python ≥ 3.10 and BlackSheep ≥ 2.0. Route templates are captured by observing the router's match, so parameterized routes group correctly.
+</Info>
+
+## Instrument the app
+
+```python
+import os
+from blacksheep import Application
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.blacksheep import instrument_app
+
+app = Application()
+client = ApiLensClient(ApiLensConfig(api_key=os.environ["APILENS_API_KEY"]))
+instrument_app(app, client, app_id="gateway-api")
+```
+
+## Identify consumers
+
+Use the generic `set_consumer` with the request object once your auth middleware has resolved the caller, or pass a `get_consumer(scope, headers)` resolver to `instrument_app`.
+
+```python
+from apilens import set_consumer
+
+async def handler(request):
+    set_consumer(request, identifier=request.identity.sub)
+    ...
+```
+
+## Tune capture
+
+All capture and client options are shared across integrations — see the [Python configuration reference](/sdk-reference/python-configuration).
+
+<Note>
+BlackSheep isn't in the dashboard's framework picker yet — pick any option when creating the app; it only affects the setup wizard's displayed snippet.
+</Note>
