@@ -6,8 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import {
   Layers,
+  LayoutGrid,
   ScrollText,
-  TrendingUp,
   Activity,
   AlertOctagon,
   Users,
@@ -81,10 +81,10 @@ export default function Sidebar() {
 
   const navigation = inProject
     ? [
-      { name: "Apps", href: `/projects/${projectSlug}/apps`, icon: ScrollText },
+      { name: "Apps", href: `/projects/${projectSlug}/apps`, icon: LayoutGrid },
       { name: "Traffic", href: `/projects/${projectSlug}/traffic`, icon: Activity },
       { name: "Errors", href: `/projects/${projectSlug}/errors`, icon: AlertOctagon },
-      { name: "Request logs", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
+      { name: "Request logs", href: `/projects/${projectSlug}/endpoints`, icon: ScrollText },
       { name: "Consumers", href: `/projects/${projectSlug}/consumers`, icon: Users },
       { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },
     ]
@@ -184,7 +184,6 @@ export default function Sidebar() {
 
       <nav className="sidebar-nav">
         <div className="nav-section">
-          {!collapsed && <span className="nav-section-title">Main</span>}
           <ul className="nav-list">
             {navigation.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -204,8 +203,8 @@ export default function Sidebar() {
           </ul>
         </div>
 
-        <div className="nav-section">
-          {!collapsed && <span className="nav-section-title">Support</span>}
+        {/* Secondary links pinned to the bottom of the rail. */}
+        <div className="nav-section nav-section-bottom">
           <ul className="nav-list">
             {secondaryNavigation.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/");

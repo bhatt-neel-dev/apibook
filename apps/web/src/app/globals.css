@@ -28,6 +28,11 @@
   /* Loading-skeleton shimmer — base + a clearly-visible moving highlight. */
   --skeleton-base: #161616;
   --skeleton-shine: #2a2a2a;
+  /* Ambient canvas glow (teal brand + cool counterpoints). */
+  --ambient-1: rgba(20, 184, 166, 0.26);
+  --ambient-2: rgba(96, 165, 250, 0.17);
+  --ambient-3: rgba(20, 184, 166, 0.15);
+  --ambient-4: rgba(139, 92, 246, 0.16);
 }
 
 /* Light Mode */
@@ -44,6 +49,10 @@
   --text-muted: #a3a3a3;
   --skeleton-base: #ececec;
   --skeleton-shine: #dadada;
+  --ambient-1: rgba(20, 184, 166, 0.14);
+  --ambient-2: rgba(96, 165, 250, 0.10);
+  --ambient-3: rgba(20, 184, 166, 0.09);
+  --ambient-4: rgba(139, 92, 246, 0.08);
 }
 
 *,
@@ -64,6 +73,45 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Ambient product glow ──────────────────────────────────────────────
+   Two fixed, non-interactive layers behind all content: a static set of
+   brand-tinted radial washes anchored to the viewport corners, and one
+   slow-drifting bloom that keeps the canvas feeling alive. Solid chrome
+   (sidebar, navbar, cards) paints over it; only the page canvas glows.
+   The global prefers-reduced-motion rule freezes the drift. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+}
+
+body::before {
+  inset: 0;
+  background:
+    radial-gradient(58% 48% at 32% 0%, var(--ambient-1), transparent 70%),
+    radial-gradient(48% 42% at 92% 12%, var(--ambient-2), transparent 70%),
+    radial-gradient(70% 52% at 50% 112%, var(--ambient-3), transparent 72%);
+}
+
+body::after {
+  inset: -20%;
+  background: radial-gradient(30% 26% at 62% 55%, var(--ambient-4), transparent 72%);
+  animation: ambient-drift 48s var(--ease-standard) infinite alternate;
+}
+
+@keyframes ambient-drift {
+  0% {
+    transform: translate3d(-4%, -3%, 0) scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate3d(4%, 4%, 0) scale(1.18);
+    opacity: 1;
+  }
+}
+
 /* Dashboard Layout */
 .dashboard-container {
   display: flex;
@@ -81,7 +129,8 @@ body {
 .main-content {
   flex: 1;
   padding: 24px;
-  background-color: var(--bg-primary);
+  /* Transparent so the body's ambient glow reads through the canvas. */
+  background-color: transparent;
 }
 
 /* When main-content contains settings page, prevent parent scroll */
@@ -103,7 +152,8 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-primary);
+  /* Transparent so the body's ambient glow reads through the canvas. */
+  background-color: transparent;
 }
 
 .standalone-topbar {
@@ -275,8 +325,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-bold);
+  font-size: 18px;
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
   letter-spacing: var(--tracking-tight);
   -webkit-font-smoothing: antialiased;
@@ -502,21 +552,18 @@ body {
   flex: 1;
   padding: var(--space-4) var(--space-3);
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
 }
 
 .nav-section {
-  margin-bottom: var(--space-6);
+  margin-bottom: 0;
 }
 
-.nav-section-title {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  padding: 0 12px;
-  margin-bottom: 8px;
+/* Secondary links (notifications, help) sit at the bottom of the rail. */
+.nav-section-bottom {
+  margin-top: auto;
 }
 
 .nav-list {
@@ -530,11 +577,12 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  height: 32px;
+  padding: 0 var(--space-3);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   text-decoration: none;
-  font-size: var(--text-md);
+  font-size: var(--text-base);
   font-weight: var(--weight-medium);
   transition: background var(--dur-fast) var(--ease-standard),
     color var(--dur-fast) var(--ease-standard);
@@ -546,22 +594,9 @@ body {
 }
 
 .nav-item-active {
-  position: relative;
   background-color: var(--accent-subtle);
   color: var(--text-primary);
   font-weight: var(--weight-semibold);
-}
-
-.nav-item-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 18px;
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-  background: var(--accent);
 }
 
 .nav-item-active .nav-icon {
