@@ -802,6 +802,7 @@ def get_project_error_summary(
     environment: str = None,
     since: str = None,
     until: str = None,
+    filter: str = None,
 ):
     """Overview tiles for the Errors page: 4xx/5xx counts + unique issues."""
     user: User = request.auth
@@ -812,6 +813,7 @@ def get_project_error_summary(
         environment=environment,
         since=since,
         until=until,
+        filter=filter,
     )
 
 
@@ -824,6 +826,7 @@ def get_project_error_issues(
     since: str = None,
     until: str = None,
     search: str = None,
+    filter: str = None,
     limit: int = 100,
 ):
     """Errors grouped into issues by (method, path, status, message)."""
@@ -836,6 +839,7 @@ def get_project_error_issues(
         since=since,
         until=until,
         search=search,
+        filter=filter,
         limit=limit,
     )
 
@@ -852,6 +856,7 @@ def get_project_error_events(
     path: str = None,
     message: str = None,
     trace_id: str = None,
+    filter: str = None,
     limit: int = 50,
 ):
     """Individual ERROR events (flat feed, or a single issue's occurrences)."""
@@ -867,6 +872,7 @@ def get_project_error_events(
         path=path,
         message=message,
         trace_id=trace_id,
+        filter=filter,
         limit=limit,
     )
 
@@ -880,6 +886,7 @@ def get_project_error_status_groups(
     since: str = None,
     until: str = None,
     search: str = None,
+    filter: str = None,
     limit: int = 200,
 ):
     """Errors grouped by (status_code, method, path) — the errors table (incl. 4xx)."""
@@ -892,6 +899,7 @@ def get_project_error_status_groups(
         since=since,
         until=until,
         search=search,
+        filter=filter,
         limit=limit,
     )
 

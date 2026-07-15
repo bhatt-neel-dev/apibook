@@ -156,26 +156,36 @@ def _validate_values(field: str, spec: FieldSpec, values: list[str]) -> None:
 
 # ── SQL building ──────────────────────────────────────────────────────────
 
-def build_where(predicates: list[Predicate], params: dict, *, key_prefix: str = "flt") -> str:
+def build_where(
+    predicates: list[Predicate],
+    params: dict,
+    *,
+    key_prefix: str = "flt",
+    columns: dict[str, str] | None = None,
+) -> str:
     """Render predicates into a parameterised SQL fragment.
 
     Mutates ``params`` with collision-free ``%(key)s`` placeholders and returns
     a string of ``AND (...)`` clauses (empty string when there are no
     predicates) to splice into an existing WHERE assembly.
+
+    ``columns`` overrides the target column per field, for tables whose column
+    names differ from ``api_requests`` (e.g. ``api_logs`` stores the endpoint
+    as ``endpoint_method``/``endpoint_path``).
     """
     clauses: list[str] = []
     for idx, pred in enumerate(predicates):
         spec = FIELD_REGISTRY[pred.field]
         key = f"{key_prefix}{idx}"
-        clause = _render(pred, spec, key, params)
+        clause = _render(pred, spec, key, params, (columns or {}).get(pred.field))
         if pred.negate:
             clause = f"NOT ({clause})"
         clauses.append(f"AND ({clause})")
     return " ".join(clauses)
 
 
-def _render(pred: Predicate, spec: FieldSpec, key: str, params: dict) -> str:
-    col = spec.column
+def _render(pred: Predicate, spec: FieldSpec, key: str, params: dict, column: str | None = None) -> str:
+    col = column or spec.column
 
     # status_class expands to status_code range(s), OR-combined across values.
     if pred.field == "status_class":

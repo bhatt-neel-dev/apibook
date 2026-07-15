@@ -2268,9 +2268,11 @@ class DataQueryService:
         environment: str | None,
         since: str | None,
         until: str | None,
+        filter: str | None = None,
     ) -> str:
         """Shared WHERE for api_logs error queries. Mutates `params` in place and
-        returns the SQL fragment (project + apps + env + time window + level)."""
+        returns the SQL fragment (project + apps + env + time window + level +
+        rich filter, translated to api_logs columns)."""
         since_dt, until_dt = _resolve_time_range(since, until)
         params["project_id"] = project_id
         params["since"] = since_dt
@@ -2290,10 +2292,13 @@ class DataQueryService:
             params["environment"] = environment
             env_filter = "AND environment = %(environment)s"
 
+        rich_filter = AnalyticsService.build_log_filter_clause(project_id, filter, params)
+
         return f"""
             WHERE project_id = %(project_id)s
               {app_filter}
               {env_filter}
+              {rich_filter}
               AND timestamp >= %(since)s
               AND timestamp <= %(until)s
               AND level = 'ERROR'
@@ -2306,6 +2311,7 @@ class DataQueryService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        filter: str | None = None,
     ) -> dict:
         """Overview tiles for the Errors page: 4xx/5xx counts + error rate from
         api_requests, and unique-issue / affected-consumer / last-seen from the
@@ -2345,6 +2351,7 @@ class DataQueryService:
             if environment:
                 req_env_filter = "AND environment = %(environment)s"
                 req_params["environment"] = environment
+            req_rich_filter = AnalyticsService.build_filter_clause(project_id, filter, req_params)
             req_query = f"""
                 SELECT
                     count() AS total_requests,
@@ -2354,6 +2361,7 @@ class DataQueryService:
                 WHERE project_id = %(project_id)s
                   {req_app_filter}
                   {req_env_filter}
+                  {req_rich_filter}
                   AND timestamp >= %(since)s
                   AND timestamp <= %(until)s
             """
@@ -2376,7 +2384,7 @@ class DataQueryService:
             IngestService.ensure_api_logs_table(client)
             params: dict[str, Any] = {}
             where = DataQueryService._build_error_log_where(
-                params, project_id, app_ids, environment, since, until
+                params, project_id, app_ids, environment, since, until, filter
             )
             log_query = f"""
                 SELECT
@@ -2405,6 +2413,7 @@ class DataQueryService:
         since: str | None = None,
         until: str | None = None,
         search: str | None = None,
+        filter: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """Errors grouped into issues by (method, path, status, message). Each row
@@ -2422,7 +2431,7 @@ class DataQueryService:
             IngestService.ensure_api_logs_table(client)
             params: dict[str, Any] = {"limit": max(1, min(int(limit), 500))}
             where = DataQueryService._build_error_log_where(
-                params, project_id, app_ids, environment, since, until
+                params, project_id, app_ids, environment, since, until, filter
             )
             if search:
                 params["search"] = f"%{search.strip()}%"
@@ -2469,6 +2478,7 @@ class DataQueryService:
         path: str | None = None,
         message: str | None = None,
         trace_id: str | None = None,
+        filter: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """Individual ERROR events, newest first. With no method/path/message it is
@@ -2485,7 +2495,7 @@ class DataQueryService:
             IngestService.ensure_api_logs_table(client)
             params: dict[str, Any] = {"limit": max(1, min(int(limit), 200))}
             where = DataQueryService._build_error_log_where(
-                params, project_id, app_ids, environment, since, until
+                params, project_id, app_ids, environment, since, until, filter
             )
             if method:
                 params["method"] = method
@@ -2534,6 +2544,7 @@ class DataQueryService:
         since: str | None = None,
         until: str | None = None,
         search: str | None = None,
+        filter: str | None = None,
         limit: int = 200,
     ) -> list[dict]:
         """Errors grouped by (status_code, method, path) over api_requests — the
@@ -2569,6 +2580,7 @@ class DataQueryService:
             if search:
                 params["search"] = f"%{search.strip()}%"
                 search_filter = "AND path ILIKE %(search)s"
+            rich_filter = AnalyticsService.build_filter_clause(project_id, filter, params)
             query = f"""
                 SELECT
                     status_code,
@@ -2583,6 +2595,7 @@ class DataQueryService:
                   {app_filter}
                   {env_filter}
                   {search_filter}
+                  {rich_filter}
                   AND status_code >= 400
                   AND timestamp >= %(since)s
                   AND timestamp <= %(until)s
@@ -3182,6 +3195,43 @@ class AnalyticsService:
             else:
                 remapped.append(p)
         return build_where(remapped, params, key_prefix=key_prefix)
+
+    # Rich-filter fields that also exist on api_logs, and the columns whose
+    # names differ from api_requests. Request-only fields (latency, sizes,
+    # ip, ua) are silently dropped for log queries.
+    _LOG_FILTER_FIELDS = {"app", "method", "status", "status_class", "path", "env", "consumer"}
+    _LOG_FILTER_COLUMNS = {"method": "endpoint_method", "path": "endpoint_path"}
+
+    @staticmethod
+    def build_log_filter_clause(
+        project_id: str, filter: str | None, params: dict, key_prefix: str = "lflt"
+    ) -> str:
+        """``build_filter_clause`` for ``api_logs`` queries: same canonical
+        filter string, but rendered against the api_logs schema — predicates on
+        columns api_logs doesn't carry are dropped rather than erroring, so one
+        filter string can drive both tables' queries on the Errors page."""
+        if not filter:
+            return ""
+        from apps.projects.filters import parse_filter, build_where, Predicate
+        from apps.projects.models import App
+
+        kept: list = []
+        for p in parse_filter(filter):
+            if p.field not in AnalyticsService._LOG_FILTER_FIELDS:
+                continue
+            if p.field == "app":
+                ids = [
+                    str(i)
+                    for i in App.objects.filter(
+                        project_id=project_id, slug__in=p.values
+                    ).values_list("id", flat=True)
+                ]
+                kept.append(Predicate("app", p.op, ids or ["__no_app__"], p.negate))
+            else:
+                kept.append(p)
+        return build_where(
+            kept, params, key_prefix=key_prefix, columns=AnalyticsService._LOG_FILTER_COLUMNS
+        )
 
     @staticmethod
     def get_project_summary(
