@@ -28,7 +28,7 @@ client = ApiLensClient(ApiLensConfig(api_key=os.environ["APILENS_API_KEY"]))
 instrument_flask(app, client, app_id="storefront-api")
 ```
 
-`instrument_flask` also accepts `environment`, `capture_spans`, `service_name`, and a `get_consumer` resolver.
+`instrument_flask` also accepts `environment`, `capture_spans`, `service_name`, a `get_consumer` resolver, and the PII redaction options (`redact_query_params`, `redact_headers`, `redact_body_fields` — see [Data privacy](/getting-started/data-privacy)).
 
 ## Identify consumers
 

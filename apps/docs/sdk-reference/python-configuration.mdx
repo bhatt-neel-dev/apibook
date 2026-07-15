@@ -51,6 +51,9 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `capture_payloads` | `True` | AND-ed with `enable_request_logging` for bodies. |
 | `capture_headers` | `True` | Capture headers (sensitive values redacted — see [Data privacy](/getting-started/data-privacy)). |
 | `max_payload_bytes` | `65536` | Per-body truncation limit; `0` disables body capture. |
+| `redact_query_params` | `None` | Regexes matched against query parameter names; matched values stored as `[redacted]`. |
+| `redact_headers` | `None` | Regexes matched against header names, on top of the built-in sensitive-header list. |
+| `redact_body_fields` | `None` | Regexes matched against JSON body field names (recursive, request and response). |
 | `capture_spans` | `True` | Automatic tracing + error-trace capture. |
 | `service_name` | `""` | Span service name (defaults to the app id). |
 | `get_consumer` | `None` | Centralized consumer resolver — see [Consumer identification](/sdk-reference/consumers). |
@@ -80,4 +83,4 @@ Worth knowing when you reason about failure modes:
 
 ## What's on the wire
 
-Each request record carries: `app_id`, `timestamp`, `environment`, `method`, `path` (template), `raw_path` (exact URL), `status_code`, `response_time_ms`, `request_size`, `response_size`, `ip_address` (proxy-header aware), `user_agent`, consumer fields, payloads/headers (as configured), `base_url`, `trace_id`, `span_id`. The full schema is in the [Ingest API reference](/ingest/request-schema).
+Each request record carries: `app_id`, `timestamp`, `environment`, `method`, `path` (template), `raw_path` (exact URL including the query string, with any `redact_query_params` matches already redacted), `status_code`, `response_time_ms`, `request_size`, `response_size`, `ip_address` (proxy-header aware), `user_agent`, consumer fields, payloads/headers (as configured), `base_url`, `trace_id`, `span_id`. The full schema is in the [Ingest API reference](/ingest/request-schema).

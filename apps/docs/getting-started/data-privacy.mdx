@@ -11,8 +11,9 @@ Observability tools see sensitive traffic, so this page is deliberately blunt ab
 |---|---|---|
 | Method, path template, status, response time | Yes | `enabled=False` disables everything |
 | Request/response sizes, client IP, user agent | Yes | — |
-| Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False` |
-| Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, or `log_request_body` / `log_response_body` individually |
+| Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False`, plus `redact_headers=[…]` for your own patterns |
+| Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, or field-level `redact_body_fields=[…]` |
+| **Query strings** | Yes, as part of the exact request URL | `redact_query_params=[…]` per-parameter |
 | Consumer identity | **No** — only what you explicitly set | `set_consumer(...)` |
 | Trace spans | Yes (timing + endpoint/URL names, no payloads) | `capture_spans=False` or `APILENS_CAPTURE_SPANS=false` |
 | Error stack traces | Yes, on unhandled exception or 5xx | disabled along with spans |
@@ -27,7 +28,44 @@ Values of these headers are replaced with `[redacted]` before leaving your proce
 
 `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `api-key`, `x-auth-token`, `x-amz-security-token`, `x-csrf-token`
 
-Serialized headers are additionally capped at 8 KB per side, dropping the longest values first.
+These built-ins always apply — you can only add to them (see [PII redaction](#pii-redaction-query-params-headers-body-fields) below), never remove them. Serialized headers are additionally capped at 8 KB per side, dropping the longest values first.
+
+## PII redaction: query params, headers, body fields
+
+Beyond the built-in header list, you can redact **individual values by name** — query parameters, extra headers, and JSON body fields — with three middleware options:
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    # Regexes matched case-insensitively against NAMES; matched VALUES
+    # are stored as [redacted]. Anchor for exact matches.
+    redact_query_params=[r"^card_number$", r"token"],
+    redact_headers=[r"^x-internal-secret$"],        # on top of the built-ins
+    redact_body_fields=[r"^password$", r"^cvv$", r"card"],
+)
+```
+
+How it behaves:
+
+- **Matching is by name, not value.** Each pattern is matched case-insensitively (`re.search`) against the query parameter name, header name, or JSON field name. Use `^…$` anchors for exact matches — an unanchored `token` also matches `access_token`.
+- **Values become `[redacted]`, names stay visible.** The request log still shows *what* was sent (`/charge?access_token=[redacted]&promo=SAVE10`), never the sensitive value.
+- **Body redaction walks nested JSON** — objects inside objects, objects inside arrays. A body of `{"user": {"card_number": "4242…"}}` comes out as `{"user": {"card_number": "[redacted]"}}`. Non-JSON bodies pass through unchanged; use the capture switches if you log sensitive non-JSON payloads.
+- **Redaction happens in the SDK, in your process.** The raw value never reaches APILens — same guarantee as the built-in header redaction.
+- **It applies to both sides** — request *and* response headers and bodies.
+
+In Django the same three options are settings:
+
+```python
+APILENS_REDACT_QUERY_PARAMS = [r"^card_number$", r"token"]
+APILENS_REDACT_HEADERS = [r"^x-internal-secret$"]
+APILENS_REDACT_BODY_FIELDS = [r"^password$", r"^cvv$", r"card"]
+```
+
+<Note>
+Redaction applies to values captured going forward — it cannot retroactively scrub requests that were already recorded without it. Configure it **before** pointing production traffic at APILens.
+</Note>
 
 ## Turning capture down (or off)
 
@@ -56,9 +94,9 @@ Two environment variables act as deploy-time kill switches, overriding code:
 - **Never blocks or breaks a request.** Telemetry failures are retried and then dropped silently; nothing propagates into your handlers.
 - **Never traces its own traffic.** The SDK's calls to the ingest endpoints are excluded from spans.
 
-## Field-level masking
+## What's still missing
 
-Regex- or callback-based masking of individual body fields and query parameters is **not available yet** — it's on the [roadmap](/roadmap). Until then, the honest options are the body/header switches above.
+Callback-based masking — a custom function deciding per request whether to drop a whole body (e.g. everything under `/admin/`) — is **not available yet**; it's on the [roadmap](/roadmap). The regex options above plus the capture switches cover everything else.
 
 <Note>
 Data is stored in ClickHouse (telemetry) and Postgres (metadata) operated by APILens. If you need data to stay entirely on your infrastructure, point `base_url` at a self-hosted ingest service — see the [Ingest API](/ingest/ingest-api).

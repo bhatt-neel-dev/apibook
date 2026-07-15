@@ -7,6 +7,7 @@ Most monitoring tools give you one "error rate". APILens doesn't, on purpose. A 
 
 So every surface in APILens shows the split:
 
+- **Errors** — the dedicated page: 4xx/5xx/rate tiles, a stacked error chart, and a table of error groups by status and endpoint. It carries the same filter bar as Traffic and Consumers, so you can scope everything on the page to one consumer, environment, status class, or path in one place.
 - **Traffic** — separate *Client 4xx*, *Server 5xx*, and *Total errors* metric tabs; the request chart stacks success/4xx/5xx in distinct colors; the endpoints table has a column for each.
 - **Consumers** — per-consumer 4xx and 5xx rates, so "this customer's integration is broken" and "this customer is hitting our bug" look different.
 - **Endpoint detail** — client and server error counts side by side in the summary.
@@ -16,7 +17,7 @@ So every surface in APILens shows the split:
 | Pattern | Likely story | Where to go next |
 |---|---|---|
 | 4xx up, 5xx flat | A caller shipped a bad integration, or you shipped a breaking change | [Consumers](/dashboard/consumers) — sort by client 4xx to find who |
-| 5xx up, 4xx flat | You have a bug or a dependency is down | [Request logs](/dashboard/request-logs) filtered `status:>=500`, then the Trace tab |
+| 5xx up, 4xx flat | You have a bug or a dependency is down | [Request logs](/dashboard/request-logs) filtered `status:>=500`, then the Exceptions tab |
 | Both up together | Traffic surge hitting limits, or auth/infra failure affecting everyone | Traffic chart for the shape, then request logs |
 | 409/422 concentrated on one endpoint | Contract confusion, race conditions on writes | Endpoint detail → most recent requests |
 
@@ -26,10 +27,10 @@ The path from "5xx is elevated" to a fix is short by design:
 
 1. On **Traffic**, click the *Server 5xx* tab to see when it started and which bars are red.
 2. Filter the endpoints table by error rate, or add `status:>=500` to the filter bar.
-3. Open a failing request and switch to its **Trace** tab — for unhandled exceptions the **full stack trace was captured automatically** at the moment it happened. No reproducing, no grepping logs.
+3. Open a failing request and switch to its **Exceptions** tab (the badge already shows the count) — for unhandled exceptions the **full stack trace was captured automatically** at the moment it happened. No reproducing, no grepping logs.
 
 <Frame caption="A 500's stack trace, captured automatically on the failing request">
-  <img src="/images/trace-tab.png" alt="Automatic error trace" />
+  <img src="/images/exceptions-tab.png" alt="Exceptions tab with the automatically captured stack trace" />
 </Frame>
 
 <Note>

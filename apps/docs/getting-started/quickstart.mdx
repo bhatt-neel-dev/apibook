@@ -64,7 +64,7 @@ With just the middleware in place, every request is captured with method, templa
 Two things need a line or two more from you:
 
 - **[Consumer identification](/sdk-reference/consumers)** — tell APILens who is calling, to unlock the Consumers page.
-- **[Capture tuning](/getting-started/data-privacy)** — bodies and headers are captured by default (with sensitive headers redacted); turn them off if your payloads are sensitive.
+- **[Capture tuning](/getting-started/data-privacy)** — bodies and headers are captured by default (with sensitive headers redacted); redact individual fields by name (`redact_body_fields=[r"^card_number$"]`) or turn capture off entirely.
 
 ## Next steps
 

@@ -35,7 +35,7 @@ When a request **raises an unhandled exception** or **returns 5xx**, the SDK emi
 | Unhandled exception | `apilens.exception` | Full traceback (payload capped at 8,000 chars; message at 4,000) |
 | 5xx without an exception | `apilens.http` | `HTTP <code> on <method> <path>` |
 
-The span's status is marked `error` in both cases. These records appear as **Trace messages** in the request's Trace tab. This is the only thing the SDK writes to the logs endpoint — it is not a general logging API.
+The span's status is marked `error` in both cases. These records appear in the request's **Exceptions** tab (and inline on the failing span in the Trace tab). This is the only thing the SDK writes to the logs endpoint — it is not a general logging API.
 
 ## Exclusions
 

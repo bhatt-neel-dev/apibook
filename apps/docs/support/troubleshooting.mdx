@@ -18,7 +18,7 @@ Work top-down — each check takes seconds:
 
 - Tracing requires a non-empty **`app_id`** — with a key alone you get metrics but no spans.
 - Check `capture_spans=True` isn't overridden and `APILENS_CAPTURE_SPANS` isn't set to a falsey value in the deploy environment (the env var wins over code).
-- A clean request has no *Trace messages* — that's expected. Error messages appear only on unhandled exceptions or 5xx responses.
+- A clean request shows nothing in its *Exceptions* tab — that's expected. Exceptions are recorded only on unhandled exceptions or 5xx responses.
 - Cross-service traces stitch only if every hop runs the middleware and your HTTP client is `requests` or `httpx` (that's where `traceparent` is injected).
 
 ## Consumers page is empty

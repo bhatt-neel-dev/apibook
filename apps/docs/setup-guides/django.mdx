@@ -45,6 +45,11 @@ APILENS_CAPTURE_SPANS = True
 APILENS_PARAMETRIZE_PATHS = True
 APILENS_SERVICE_NAME = ""
 APILENS_PROJECT_SLUG = ""                # optional; key already implies the project
+
+# PII redaction — regexes matched against names; matched values -> [redacted]
+APILENS_REDACT_QUERY_PARAMS = [r"^card_number$", r"token"]
+APILENS_REDACT_HEADERS = [r"^x-internal-secret$"]   # on top of the built-ins
+APILENS_REDACT_BODY_FIELDS = [r"^password$", r"^cvv$", r"card"]
 ```
 
 ## Identify consumers

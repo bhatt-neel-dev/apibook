@@ -6,7 +6,7 @@ description: "Automatic per-request traces with outbound-call spans and stack tr
 Every request through the APILens middleware gets a trace, automatically. There is no span API to learn and nothing to instrument by hand: the SDK opens a root span per request, turns outbound `requests`/`httpx` calls into child spans, and stitches traces across your services via the W3C `traceparent` header.
 
 <Frame caption="Trace tab of a 500 response — span waterfall plus the automatically captured exception">
-  <img src="/images/trace-tab.png" alt="Trace tab with span waterfall and error message" />
+  <img src="/images/trace-tab.png" alt="Trace tab with span waterfall and exception chip on the failing span" />
 </Frame>
 
 ## The waterfall
@@ -15,17 +15,19 @@ The **Trace** tab of any request shows its spans as a waterfall: each bar's posi
 
 Because `traceparent` propagates on outbound calls, a request that hops `cart-service → payment-service → orders-api` renders as **one trace**, as long as each service runs the APILens middleware.
 
-## Trace messages: errors capture themselves
+## Exceptions: errors capture themselves
 
-When a request raises an unhandled exception or returns a 5xx, the SDK records exactly one `ERROR` message on the trace:
+When a request raises an unhandled exception or returns a 5xx, the SDK records exactly one `ERROR` record on the trace:
 
-- an unhandled exception attaches the **full stack trace** (expand the row to read it verbatim, copy it with one click),
+- an unhandled exception attaches the **full stack trace**,
 - a plain 5xx records `HTTP <code> on <method> <path>`.
 
-That means the answer to "why did this 500?" is usually already sitting in the Trace tab — no log-diving, no correlating timestamps across systems.
+These land in the request's **Exceptions** tab — the tab carries a count badge so you see *that* and *how many* without opening it, and the first traceback arrives already expanded, with one-click copy. The Trace tab cross-references them: each failing span in the waterfall carries a red *exception* chip that expands its correlated exception inline, right under the span.
+
+That means the answer to "why did this 500?" is usually already sitting in the modal — no log-diving, no correlating timestamps across systems.
 
 <Note>
-A clean request has no trace messages. This is not a general-purpose logging API — it is deliberately scoped to errors, so the signal-to-noise ratio stays high.
+A clean request has no exceptions and no badge. This is not a general-purpose logging API — it is deliberately scoped to errors, so the signal-to-noise ratio stays high.
 </Note>
 
 ## Controlling trace capture
