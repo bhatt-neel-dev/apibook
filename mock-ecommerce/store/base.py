@@ -56,6 +56,11 @@ def make_app(app_id: str) -> FastAPI:
             api_key=APILENS_API_KEY,
             app_id=app_id,
             env=APILENS_ENVIRONMENT,
+            # PII never leaves the service: values whose NAME matches one of
+            # these regexes are stored as [redacted] (names stay visible).
+            redact_query_params=[r"^card_number$", r"token"],
+            redact_headers=[r"^x-internal-secret$"],
+            redact_body_fields=[r"^card_number$", r"^cvv$", r"password"],
         )
 
     @app.get("/health", tags=["system"])

@@ -16,6 +16,9 @@ def instrument_flask(
     environment: str | None = None,
     capture_spans: bool = True,
     service_name: str = "",
+    redact_query_params: list[str] | None = None,
+    redact_headers: list[str] | None = None,
+    redact_body_fields: list[str] | None = None,
     get_consumer: Callable[..., Any] | None = None,
 ):
     """Flask integration via WSGI wrapper.
@@ -63,6 +66,9 @@ def instrument_flask(
         environment=environment,
         capture_spans=capture_spans,
         service_name=service_name,
+        redact_query_params=redact_query_params,
+        redact_headers=redact_headers,
+        redact_body_fields=redact_body_fields,
         get_consumer=get_consumer,
         route_resolver=lambda environ: flask_route_template(app, environ),
     )

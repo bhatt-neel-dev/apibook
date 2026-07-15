@@ -18,7 +18,7 @@ from ._capture import (
     capture_response,
 )
 from ._routes import resolve_endpoint_path
-from ._sanitize import decode_utf8_safe, serialize_headers
+from ._sanitize import Redactor, decode_utf8_safe, serialize_headers
 from .client import ApiLensClient
 from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
 from .trace import begin_request_trace, end_request_trace
@@ -286,6 +286,9 @@ class ApiLensASGIMiddleware:
         capture_spans: bool = True,
         service_name: str = "",
         max_payload_bytes: int = 65536,
+        redact_query_params: list[str] | None = None,
+        redact_headers: list[str] | None = None,
+        redact_body_fields: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -301,6 +304,15 @@ class ApiLensASGIMiddleware:
         self.capture_payloads = capture_payloads and enable_request_logging
         self.capture_headers = capture_headers and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
+        # PII redaction: regexes matched (case-insensitive) against query
+        # parameter / header / JSON body field NAMES; matched values become
+        # ``[redacted]`` before anything leaves the app. Anchor for exact
+        # matches (r"^card_number$"). Built-in SENSITIVE_HEADERS always apply.
+        self.redactor = Redactor(
+            query_params=redact_query_params or (),
+            headers=redact_headers or (),
+            body_fields=redact_body_fields or (),
+        )
         # Framework hook that maps a matched request scope to its route template
         # (``/product/{id}``). Runs after the app handled the request, when
         # routing has resolved. Heuristic fallback applies when it returns None.
@@ -329,6 +341,11 @@ class ApiLensASGIMiddleware:
 
         headers = _headers_to_dict(scope.get("headers", []))
         path = _normalize_path(scope.get("path", "/"))
+        # raw_path keeps the exact request URL incl. query string (with any
+        # matching parameter values redacted); `path` stays query-free for
+        # endpoint-template resolution.
+        query = (scope.get("query_string") or b"").decode("latin-1")
+        raw_path = f"{path}?{self.redactor.redact_query(query)}" if query else path
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(headers.get("traceparent"))
 
         request_payload_chunks: list[bytes] = []
@@ -337,14 +354,14 @@ class ApiLensASGIMiddleware:
         ctx = CaptureContext(
             method=(scope.get("method") or "GET").upper(),
             path=path,
-            raw_path=path,
+            raw_path=raw_path,
             project_slug=self.project_slug or self.client.config.project_slug,
             app_id=self.app_id,
             request_size=_to_int(headers.get("content-length"), 0),
             ip_address=_extract_ip(headers, fallback=(scope.get("client") or ("", 0))[0] or ""),
             user_agent=_extract_user_agent(headers),
             base_url=_detect_base_url_from_headers(headers, default_scheme=scope.get("scheme", "https")),
-            request_headers=serialize_headers(headers) if self.capture_headers else "",
+            request_headers=serialize_headers(headers, redactor=self.redactor) if self.capture_headers else "",
             trace_id=trace_id,
             span_id=span_id,
         )
@@ -381,7 +398,8 @@ class ApiLensASGIMiddleware:
                 status_code = int(message.get("status") or 500)
                 if self.capture_headers:
                     response_headers_json = serialize_headers(
-                        _headers_to_dict(message.get("headers") or [])
+                        _headers_to_dict(message.get("headers") or []),
+                        redactor=self.redactor,
                     )
             elif msg_type == "http.response.body":
                 body = message.get("body") or b""
@@ -409,7 +427,7 @@ class ApiLensASGIMiddleware:
                     template = None
             else:
                 template = None
-            ctx.path = resolve_endpoint_path(template, ctx.raw_path, self.parametrize_paths)
+            ctx.path = resolve_endpoint_path(template, path, self.parametrize_paths)
             consumer = dict(_read_consumer())
             scope_state = scope.get("state")
             if isinstance(scope_state, dict):
@@ -423,8 +441,8 @@ class ApiLensASGIMiddleware:
                     resolved = None
                 if resolved is not None:
                     consumer = normalize_consumer(resolved)
-            request_payload = decode_utf8_safe(b"".join(request_payload_chunks))
-            response_payload = decode_utf8_safe(b"".join(response_payload_chunks))
+            request_payload = self.redactor.redact_body(decode_utf8_safe(b"".join(request_payload_chunks)))
+            response_payload = self.redactor.redact_body(decode_utf8_safe(b"".join(response_payload_chunks)))
             ctx.request_payload = request_payload
             _apply_consumer(ctx, consumer)
             capture_response(
@@ -481,6 +499,9 @@ class ApiLensWSGIMiddleware:
         capture_spans: bool = True,
         service_name: str = "",
         max_payload_bytes: int = 65536,
+        redact_query_params: list[str] | None = None,
+        redact_headers: list[str] | None = None,
+        redact_body_fields: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -496,6 +517,13 @@ class ApiLensWSGIMiddleware:
         self.capture_payloads = capture_payloads and enable_request_logging
         self.capture_headers = capture_headers and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
+        # PII redaction — same semantics as the ASGI middleware (regexes on
+        # names; values become ``[redacted]`` before anything leaves the app).
+        self.redactor = Redactor(
+            query_params=redact_query_params or (),
+            headers=redact_headers or (),
+            body_fields=redact_body_fields or (),
+        )
         # Framework hook that maps a WSGI environ to its route template. Runs
         # after the app handled the request. Heuristic fallback when None.
         self.route_resolver = route_resolver
@@ -523,7 +551,7 @@ class ApiLensWSGIMiddleware:
 
         clean_path = _normalize_path(environ.get("PATH_INFO") or "/")
         query = environ.get("QUERY_STRING")
-        path = f"{clean_path}?{query}" if query else clean_path
+        path = f"{clean_path}?{self.redactor.redact_query(query)}" if query else clean_path
 
         xff = (environ.get("HTTP_X_FORWARDED_FOR") or "").strip()
         if xff:
@@ -537,7 +565,7 @@ class ApiLensWSGIMiddleware:
             if stream is not None and hasattr(stream, "read"):
                 body = stream.read(self.max_payload_bytes)
                 if body:
-                    request_payload = decode_utf8_safe(body)
+                    request_payload = self.redactor.redact_body(decode_utf8_safe(body))
                 # Reset stream so app can consume the same bytes.
                 try:
                     import io
@@ -547,7 +575,9 @@ class ApiLensWSGIMiddleware:
                     pass
 
         request_headers_json = (
-            serialize_headers(_wsgi_request_headers(environ)) if self.capture_headers else ""
+            serialize_headers(_wsgi_request_headers(environ), redactor=self.redactor)
+            if self.capture_headers
+            else ""
         )
 
         ctx = CaptureContext(
@@ -577,7 +607,8 @@ class ApiLensWSGIMiddleware:
             status_code = _to_int(status.split(" ", 1)[0], 500)
             if self.capture_headers:
                 response_headers_json = serialize_headers(
-                    {str(k): str(v) for k, v in (headers or [])}
+                    {str(k): str(v) for k, v in (headers or [])},
+                    redactor=self.redactor,
                 )
             return start_response(status, headers, exc_info)
 
@@ -643,7 +674,7 @@ class ApiLensWSGIMiddleware:
                     path=ctx.path,
                     consumer=consumer,
                 )
-            response_payload = decode_utf8_safe(b"".join(response_payload_chunks))
+            response_payload = self.redactor.redact_body(decode_utf8_safe(b"".join(response_payload_chunks)))
             capture_response(
                 self.client,
                 ctx,

@@ -5,7 +5,7 @@ from typing import Any
 
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client._routes import django_route_template, resolve_endpoint_path
-from .client._sanitize import decode_utf8_safe, serialize_headers
+from .client._sanitize import Redactor, decode_utf8_safe, serialize_headers
 from .client import ApiLensClient, ApiLensConfig
 from .client.middleware import (
     _apply_consumer,
@@ -126,6 +126,14 @@ class ApiLensDjangoMiddleware:
             raise RuntimeError("APILENS_APP_ID is required in Django settings")
         self.max_payload_bytes = int(getattr(settings, "APILENS_MAX_PAYLOAD_BYTES", 65536))
         self.capture_headers = bool(getattr(settings, "APILENS_CAPTURE_HEADERS", True))
+        # PII redaction — regexes matched (case-insensitive) against query
+        # parameter / header / JSON body field names; matched values are stored
+        # as ``[redacted]``. Built-in sensitive headers always apply.
+        self.redactor = Redactor(
+            query_params=list(getattr(settings, "APILENS_REDACT_QUERY_PARAMS", []) or []),
+            headers=list(getattr(settings, "APILENS_REDACT_HEADERS", []) or []),
+            body_fields=list(getattr(settings, "APILENS_REDACT_BODY_FIELDS", []) or []),
+        )
         # Heuristic path parametrization when the URL resolver gives no route
         # (env APILENS_PARAMETRIZE_PATHS wins over this setting).
         self.parametrize_paths = bool(getattr(settings, "APILENS_PARAMETRIZE_PATHS", True))
@@ -170,10 +178,14 @@ class ApiLensDjangoMiddleware:
         except Exception:
             base_url = ""
 
-        raw_path = _normalize_path(getattr(request, "path", "/") or "/")
+        clean_path = _normalize_path(getattr(request, "path", "/") or "/")
+        # raw_path keeps the exact URL incl. query string (with any matching
+        # parameter values redacted); clean_path drives template resolution.
+        query = request.META.get("QUERY_STRING") or ""
+        raw_path = f"{clean_path}?{self.redactor.redact_query(query)}" if query else clean_path
         ctx = CaptureContext(
             method=(request.method or "GET").upper(),
-            path=raw_path,
+            path=clean_path,
             raw_path=raw_path,
             project_slug=self.project_slug or self.client.config.project_slug,
             app_id=self.app_id,
@@ -186,12 +198,14 @@ class ApiLensDjangoMiddleware:
         )
         if self.capture_headers:
             try:
-                ctx.request_headers = serialize_headers(dict(request.headers.items()))
+                ctx.request_headers = serialize_headers(
+                    dict(request.headers.items()), redactor=self.redactor
+                )
             except Exception:
                 ctx.request_headers = ""
         try:
             body = request.body[: self.max_payload_bytes]
-            ctx.request_payload = decode_utf8_safe(body)
+            ctx.request_payload = self.redactor.redact_body(decode_utf8_safe(body))
         except Exception:
             ctx.request_payload = ""
 
@@ -201,10 +215,12 @@ class ApiLensDjangoMiddleware:
             status_code = int(getattr(response, "status_code", 500) or 500)
             content = getattr(response, "content", b"") or b""
             response_size = len(content)
-            response_payload = decode_utf8_safe(content[: self.max_payload_bytes])
+            response_payload = self.redactor.redact_body(
+                decode_utf8_safe(content[: self.max_payload_bytes])
+            )
             if self.capture_headers:
                 try:
-                    response_headers = serialize_headers(dict(response.items()))
+                    response_headers = serialize_headers(dict(response.items()), redactor=self.redactor)
                 except Exception:
                     response_headers = ""
             return response
@@ -212,7 +228,7 @@ class ApiLensDjangoMiddleware:
             # resolver_match is populated once the request has been routed, so
             # group under the URLconf route template; raw_path keeps the URL.
             ctx.path = resolve_endpoint_path(
-                django_route_template(request), ctx.raw_path, self.parametrize_paths
+                django_route_template(request), clean_path, self.parametrize_paths
             )
             consumer = dict(_read_consumer(request))
             if self.get_consumer is not None and not consumer.get("consumer_id"):

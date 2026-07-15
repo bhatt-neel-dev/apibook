@@ -16,6 +16,9 @@ def instrument_app(
     environment: str | None = None,
     capture_spans: bool = True,
     service_name: str = "",
+    redact_query_params: list[str] | None = None,
+    redact_headers: list[str] | None = None,
+    redact_body_fields: list[str] | None = None,
     get_consumer: Callable[..., Any] | None = None,
 ):
     """Compatibility wrapper: prefer apilens.frameworks.flask.instrument_flask."""
@@ -27,6 +30,9 @@ def instrument_app(
         environment=environment,
         capture_spans=capture_spans,
         service_name=service_name,
+        redact_query_params=redact_query_params,
+        redact_headers=redact_headers,
+        redact_body_fields=redact_body_fields,
         get_consumer=get_consumer,
     )
 

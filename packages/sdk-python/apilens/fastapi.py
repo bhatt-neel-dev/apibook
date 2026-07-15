@@ -21,6 +21,17 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             base_url="https://ingest.apilens.ai/v1",
             env="production",
         )
+
+    PII redaction — regexes matched case-insensitively against NAMES (anchor
+    for exact matches); matched values are stored as ``[redacted]``::
+
+        app.add_middleware(
+            ApiLensGatewayMiddleware,
+            api_key="...", app_id="...",
+            redact_query_params=[r"^card_number$", r"token"],
+            redact_headers=[r"^x-internal-secret$"],   # on top of built-ins
+            redact_body_fields=[r"^password$", r"^ssn$", r"card"],
+        )
     """
 
     def __init__(
@@ -42,6 +53,9 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         capture_spans: bool = True,
         service_name: str = "",
         max_payload_bytes: int = 65536,
+        redact_query_params: list[str] | None = None,
+        redact_headers: list[str] | None = None,
+        redact_body_fields: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         resolved_key = (api_key or client_id or "").strip()
@@ -75,6 +89,9 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             capture_spans=capture_spans,
             service_name=service_name,
             max_payload_bytes=max_payload_bytes,
+            redact_query_params=redact_query_params,
+            redact_headers=redact_headers,
+            redact_body_fields=redact_body_fields,
             get_consumer=get_consumer,
             route_resolver=starlette_route_template,
         )
