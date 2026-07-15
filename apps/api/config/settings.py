@@ -182,7 +182,10 @@ if database_url:
             "PASSWORD": unquote(parsed.password or ""),
             "HOST": parsed.hostname or "localhost",
             "PORT": str(parsed.port or "5432"),
-            "CONN_MAX_AGE": 60,
+            # Persistent connections only under a bounded-worker server (gunicorn).
+            # Dev runserver is thread-per-request: with the live-polling dashboard
+            # each thread would pin a connection for 60s and exhaust Postgres.
+            "CONN_MAX_AGE": 0 if DEBUG else 60,
             "OPTIONS": db_options,
         }
     }
@@ -226,7 +229,10 @@ else:
             "PASSWORD": db_password,
             "HOST": db_host,
             "PORT": db_port,
-            "CONN_MAX_AGE": 60,
+            # Persistent connections only under a bounded-worker server (gunicorn).
+            # Dev runserver is thread-per-request: with the live-polling dashboard
+            # each thread would pin a connection for 60s and exhaust Postgres.
+            "CONN_MAX_AGE": 0 if DEBUG else 60,
             "OPTIONS": {
                 "connect_timeout": 10,
             },
