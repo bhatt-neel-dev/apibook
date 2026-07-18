@@ -102,9 +102,10 @@ export default function Sidebar() {
   const currentProject = projects.find((p) => p.slug === projectSlug);
   const displayName = currentProject?.name || (inProject ? projectSlug : "Select project");
   const currentAvatar = (displayName?.charAt(0) || "P").toUpperCase().slice(0, 2);
+  const projectListboxId = "sidebar-project-switcher-list";
 
   return (
-    <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
+    <aside id="app-sidebar" className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
       <div className="sidebar-header">
         <Link href="/projects" className="logo" title="Back to Projects">
           {collapsed ? (
@@ -124,9 +125,14 @@ export default function Sidebar() {
       {/* Project Switcher */}
       <div className="app-switcher" ref={dropdownRef}>
         <button
+          type="button"
           className="app-switcher-trigger"
           onClick={() => setDropdownOpen((prev) => !prev)}
           title={collapsed ? displayName : undefined}
+          aria-haspopup="listbox"
+          aria-expanded={dropdownOpen}
+          aria-controls={dropdownOpen ? projectListboxId : undefined}
+          aria-label={`Switch project, current project ${displayName}`}
         >
           <span className="app-switcher-avatar">
             {currentAvatar}
@@ -142,14 +148,22 @@ export default function Sidebar() {
         {dropdownOpen && (
           <div className="app-switcher-dropdown">
             <div className="app-switcher-section-label">Projects</div>
-            <div className="app-switcher-list">
+            <div
+              id={projectListboxId}
+              className="app-switcher-list"
+              role="listbox"
+              aria-label="Projects"
+            >
               {projects.map((project) => {
                 const isActive = project.slug === projectSlug;
                 return (
                   <button
+                    type="button"
                     key={project.id}
                     className={`app-switcher-option ${isActive ? "app-switcher-option-active" : ""}`}
                     onClick={() => handleSwitchProject(project.slug)}
+                    role="option"
+                    aria-selected={isActive}
                   >
                     <span className="app-switcher-option-avatar">
                       {(project.name.charAt(0) || "P").toUpperCase().slice(0, 2)}
@@ -228,9 +242,13 @@ export default function Sidebar() {
       <div className="sidebar-footer">
         <div className="sidebar-actions">
           <button
+            type="button"
             className="sidebar-action-btn"
             onClick={toggleSidebar}
             title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
+            aria-controls="app-sidebar"
           >
             {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             {!collapsed && <span>Collapse</span>}
