@@ -131,7 +131,7 @@ export default function Sidebar() {
           title={collapsed ? displayName : undefined}
           aria-haspopup="listbox"
           aria-expanded={dropdownOpen}
-          aria-controls={projectListboxId}
+          aria-controls={dropdownOpen ? projectListboxId : undefined}
           aria-label={`Switch project, current project ${displayName}`}
         >
           <span className="app-switcher-avatar">
