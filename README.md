@@ -220,6 +220,13 @@ Test consumer tracking:
 curl -H "X-User-Email: alice@example.com" -H "X-User-Name: Alice" http://localhost:8012/v1/invoices/42
 ```
 
+Unit tests (kill-switch, consumer normalization, header redaction, payload decoding):
+```bash
+cd packages/sdk-python
+uv sync              # first time only — creates .venv with pytest
+uv run pytest tests/
+```
+
 ## Repo conventions
 
 - pnpm workspaces are everything under `apps/*` and `packages/*` with a `package.json`.
