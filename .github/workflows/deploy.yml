@@ -39,7 +39,7 @@ jobs:
           service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Configure docker auth for Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
@@ -135,7 +135,7 @@ jobs:
           service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       # Roll the stack on the VM. deploy.sh pins IMAGE_TAG=<sha> in .env,
       # pulls, and recreates containers.
